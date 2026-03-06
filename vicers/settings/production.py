@@ -18,7 +18,7 @@ DATABASES = {
 
 CORS_ALLOWED_ORIGINS = [
     "https://vicegamers.com",
-    "https://vicecreators.com",
+    "https://www.vicegamers.com",
     "https://vicecreators.com",
     "https://www.vicecreators.com",
 ]
