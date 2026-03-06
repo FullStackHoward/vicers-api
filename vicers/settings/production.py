@@ -1,7 +1,7 @@
 from .base import *
 from decouple import config
 
-
+#test
 DEBUG = False
 
 ALLOWED_HOSTS = ['api.vicers.net', 'www.api.vicers.net']
