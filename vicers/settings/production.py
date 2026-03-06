@@ -4,10 +4,7 @@ from decouple import config
 
 DEBUG = False
 
-ALLOWED_HOSTS = [
-    'vicers.net',
-    'www.vicers.net',
-]
+ALLOWED_HOSTS = ['api.vicers.net', 'www.api.vicers.net']
 
 DATABASES = {
     'default': {
