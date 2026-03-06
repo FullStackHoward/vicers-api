@@ -1,0 +1,26 @@
+name: Deploy Vicers API
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/joshhowa/public_html/vicers.net/api
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            python manage.py migrate --settings=vicers.settings.production
+            python manage.py collectstatic --no-input --settings=vicers.settings.production
+            sudo systemctl restart vicers-api
