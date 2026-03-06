@@ -1,7 +1,6 @@
 from .base import *
 from decouple import config
 
-#test
 DEBUG = False
 
 ALLOWED_HOSTS = ['api.vicers.net', 'www.api.vicers.net']
@@ -20,6 +19,8 @@ DATABASES = {
 CORS_ALLOWED_ORIGINS = [
     "https://vicegamers.com",
     "https://vicecreators.com",
+    "https://vicecreators.com",
+    "https://www.vicecreators.com",
 ]
 
 STATIC_URL = '/static/'
