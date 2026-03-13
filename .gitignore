@@ -1,0 +1,26 @@
+# Environment
+.env
+
+# Database
+db.sqlite3
+
+# Virtual Environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# PyCharm
+.idea/
+
+# Mac system files
+.DS_Store
+
+# Django collected static
+staticfiles/
+
+media/
+
+.gitignore
