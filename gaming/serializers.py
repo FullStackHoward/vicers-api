@@ -12,6 +12,7 @@ class SquadSerializer(serializers.ModelSerializer):
             'logo',
             'cover_image',
             'platform',
+            'landing_page_url',
             'is_active',
             'created_at',
         ]

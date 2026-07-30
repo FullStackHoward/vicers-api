@@ -3,7 +3,8 @@ from .models import Squad, Game, GamingProject
 
 @admin.register(Squad)
 class SquadAdmin(admin.ModelAdmin):
-    list_display = ['name', 'game', 'platform', 'is_active']
+    list_display = ['name', 'game', 'platform', 'landing_page_url', 'is_active']
+    list_editable = ['landing_page_url']
     list_filter = ['is_active', 'platform']
     search_fields = ['name', 'game']
 

@@ -7,6 +7,14 @@ class Squad(models.Model):
     logo = models.ImageField(upload_to='squads/', blank=True, null=True)
     cover_image = models.ImageField(upload_to='squads/', blank=True, null=True)
     platform = models.CharField(max_length=100, blank=True)
+    landing_page_url = models.URLField(
+        blank=True,
+        null=True,
+        verbose_name='Landing page URL',
+        help_text="Optional. If set, this squad's card on the main site becomes a "
+                  "link to this page (e.g. https://vicegamers.com/gta/). Leave it "
+                  "empty and the card renders unlinked, as it does today.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
