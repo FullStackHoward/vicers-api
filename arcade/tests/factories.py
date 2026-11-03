@@ -17,13 +17,30 @@ def eastern(year, month, day, hour=0, minute=0):
 
 
 def make_game(slug='vetrix', display_name='Vetrix', active_from=None, is_active=True):
-    return ArcadeGame.objects.create(
+    """
+    Idempotent on slug, because migration 0002 seeds the real Vetrix row and the
+    test database carries it. Reusing that row rather than adding a second one
+    also keeps the game counts these tests assert on honest.
+    """
+    game, _ = ArcadeGame.objects.update_or_create(
         slug=slug,
-        display_name=display_name,
-        is_active=is_active,
-        active_from=active_from or eastern(2020, 1, 1),
-        plausibility={},
+        defaults={
+            'display_name': display_name,
+            'is_active': is_active,
+            'active_from': active_from or eastern(2020, 1, 1),
+            'plausibility': {},
+        },
     )
+    return game
+
+
+def only_games(*games):
+    """
+    Drop every cabinet except these, for the handful of tests that assert on the
+    whole set of counted games rather than on one of them.
+    """
+    keep = [game.pk for game in games]
+    ArcadeGame.objects.exclude(pk__in=keep).delete()
 
 
 def make_season(starts_at, ends_at=None, interval_days=7, status=SeasonStatus.OPEN):

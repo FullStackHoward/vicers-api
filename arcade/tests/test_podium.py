@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from arcade import leaderboards, podium
 from arcade.models import ArcadeEvent, EventType
-from arcade.tests.factories import eastern, make_game, make_score, make_season
+from arcade.tests.factories import eastern, make_game, make_score, make_season, only_games
 
 
 class SingleGameTests(TestCase):
@@ -115,7 +115,13 @@ class CountedGameTests(TestCase):
         self.assertNotIn(locked, podium.counted_games(self.season))
 
     def test_with_no_counted_games_there_are_no_standings(self):
-        make_game(slug='later', active_from=self.season.starts_at + timedelta(days=1))
+        # only_games drops the seeded Vetrix row, so this really does run with
+        # nothing counted rather than merely with nothing scored.
+        later = make_game(slug='later', active_from=self.season.starts_at + timedelta(days=1))
+        only_games(later)
+        make_score(later, 'a', 500, self.moment)
+
+        self.assertEqual(podium.counted_games(self.season), [])
         self.assertEqual(podium.standings(self.season), [])
 
 
