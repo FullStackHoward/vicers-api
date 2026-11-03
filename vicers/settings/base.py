@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'community',
     'gaming',
     'creators',
+    'arcade',
 ]
 
 MIDDLEWARE = [
