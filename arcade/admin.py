@@ -1,0 +1,156 @@
+"""
+Admin for the arcade.
+
+Django admin is where every other app in this project keeps its configuration, so
+the reset interval lives here too rather than in a settings file that would need
+a deploy to change.
+
+`ArcadeSettings` is a singleton: one row, no add, no delete. The model enforces
+that as well, so nothing here is load-bearing for the invariant. What the admin
+adds is the part only it can do: recording who made the change, and telling them
+in plain Eastern time when the next reset now falls.
+"""
+
+from django.contrib import admin, messages
+from django.urls import reverse
+from django.utils.html import format_html
+
+from . import rollover, seasons
+from .models import (
+    ArcadeAlertOptIn,
+    ArcadeEvent,
+    ArcadeGame,
+    ArcadeSeason,
+    ArcadeSettings,
+    DailyBoard,
+    MemberDeparture,
+    PersonalBest,
+    PlaySession,
+    PodiumResult,
+    Score,
+)
+
+
+@admin.register(ArcadeSettings)
+class ArcadeSettingsAdmin(admin.ModelAdmin):
+    readonly_fields = ['current_round', 'updated_at', 'updated_by']
+    fields = ['reset_interval_days', 'current_round', 'updated_at', 'updated_by']
+
+    def has_add_permission(self, request):
+        # One row only, and it is created on demand by ArcadeSettings.load().
+        return not ArcadeSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        """Go straight to the one row rather than showing a list of length one."""
+        from django.shortcuts import redirect
+
+        row = ArcadeSettings.load()
+        return redirect(reverse('admin:arcade_arcadesettings_change', args=[row.pk]))
+
+    @admin.display(description='Current round')
+    def current_round(self, obj):
+        season = ArcadeSeason.objects.order_by('-starts_at').first()
+        if season is None:
+            return 'No round has started yet. The first one opens when the arcade is first used.'
+
+        return format_html(
+            'Started {}<br>Resets {}<br>Status: {}',
+            seasons.describe(season.starts_at),
+            seasons.describe(season.ends_at),
+            season.get_status_display(),
+        )
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+
+        # The interval only means anything once it is applied to the round in
+        # progress, and the person who just changed it should be told where the
+        # reset landed rather than having to work it out.
+        revised = rollover.apply_interval_change()
+        messages.info(
+            request,
+            f'Leaderboards now reset every {obj.reset_interval_days} day(s). '
+            f'The round in progress now resets {seasons.describe(revised)}.',
+        )
+
+
+@admin.register(ArcadeGame)
+class ArcadeGameAdmin(admin.ModelAdmin):
+    list_display = ['display_name', 'slug', 'is_active', 'active_from']
+    list_filter = ['is_active']
+    search_fields = ['slug', 'display_name']
+
+
+@admin.register(ArcadeSeason)
+class ArcadeSeasonAdmin(admin.ModelAdmin):
+    list_display = ['__str__', 'starts_at', 'ends_at', 'status', 'revision']
+    list_filter = ['status']
+    readonly_fields = ['live_top']
+
+
+@admin.register(Score)
+class ScoreAdmin(admin.ModelAdmin):
+    list_display = ['display_name', 'game', 'score', 'created_at', 'flagged', 'approved', 'removed']
+    list_filter = ['game', 'flagged', 'approved', 'removed', 'removal_reason']
+    search_fields = ['discord_user_id', 'display_name']
+    readonly_fields = ['run_stats', 'input_log', 'created_at']
+    date_hierarchy = 'created_at'
+
+
+@admin.register(PersonalBest)
+class PersonalBestAdmin(admin.ModelAdmin):
+    list_display = ['discord_user_id', 'game', 'best_score', 'achieved_at']
+    list_filter = ['game']
+    search_fields = ['discord_user_id']
+
+
+@admin.register(PodiumResult)
+class PodiumResultAdmin(admin.ModelAdmin):
+    list_display = ['season', 'place', 'display_name', 'average_placement', 'hidden']
+    list_filter = ['place', 'hidden']
+    search_fields = ['discord_user_id', 'display_name']
+
+
+@admin.register(DailyBoard)
+class DailyBoardAdmin(admin.ModelAdmin):
+    list_display = ['day', 'game', 'player_count', 'finalized_at']
+    list_filter = ['game']
+    readonly_fields = ['entries', 'message_ids', 'finalized_at']
+    date_hierarchy = 'day'
+
+    @admin.display(description='Players')
+    def player_count(self, obj):
+        return len(obj.entries or [])
+
+
+@admin.register(ArcadeEvent)
+class ArcadeEventAdmin(admin.ModelAdmin):
+    list_display = ['type', 'created_at', 'handled_at']
+    list_filter = ['type', 'handled_at']
+    readonly_fields = ['type', 'payload', 'created_at', 'handled_at']
+    date_hierarchy = 'created_at'
+
+
+@admin.register(MemberDeparture)
+class MemberDepartureAdmin(admin.ModelAdmin):
+    list_display = ['discord_user_id', 'left_at', 'recorded_at']
+    search_fields = ['discord_user_id']
+    date_hierarchy = 'left_at'
+
+
+@admin.register(PlaySession)
+class PlaySessionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'discord_user_id', 'game', 'issued_at', 'expires_at', 'used']
+    list_filter = ['game', 'used']
+    search_fields = ['discord_user_id']
+
+
+@admin.register(ArcadeAlertOptIn)
+class ArcadeAlertOptInAdmin(admin.ModelAdmin):
+    list_display = ['discord_user_id', 'enabled', 'updated_at']
+    list_filter = ['enabled']
+    search_fields = ['discord_user_id']

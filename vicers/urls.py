@@ -24,4 +24,10 @@ urlpatterns = [
     path('api/', include('community.urls')),
     path('api/gaming/', include('gaming.urls')),
     path('api/creators/', include('creators.urls')),
+    path('api/arcade/', include('arcade.urls')),
+    # Mounted twice on purpose. Discord's URL Mappings send /api to this host, and
+    # whether its proxy keeps or strips that prefix is the one platform behaviour the
+    # spec left unverified. Answering on both means the Activity works either way.
+    # Once a real request settles it, the spare mount can go.
+    path('arcade/', include('arcade.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
