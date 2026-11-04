@@ -78,6 +78,13 @@ CORS_ALLOWED_ORIGINS = [
     "https://vicecreators.com",
 ]
 
+# The arcade page signs its calls with an X-Arcade-Identity header. A header
+# that is not on this list fails the browser's preflight, and the request is
+# never sent, so the default list plus that one.
+from corsheaders.defaults import default_headers  # noqa: E402
+
+CORS_ALLOW_HEADERS = (*default_headers, 'x-arcade-identity')
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 

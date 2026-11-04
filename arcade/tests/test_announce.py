@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from arcade import announce, discord_api
 from arcade.models import ArcadeCallout, RunPost
-from arcade.tests.factories import make_game, make_score, only_games
+from arcade.tests.factories import eastern, make_game, make_score, only_games
 from arcade.tests.test_play import ARCADE_ENV
 
 CHANNEL = '800000000000000011'
@@ -122,7 +122,10 @@ class AnnounceMixin:
         announce._icon_cache.update(url=None, fetched=0.0)
         self.game = make_game()
         only_games(self.game)
-        self.now = timezone.now()
+        # A fixed noon Eastern, never the real clock: a test that puts a score an
+        # hour earlier would otherwise land it on yesterday's board just after
+        # midnight.
+        self.now = eastern(2026, 11, 10, 12, 0)
         self.use(FakeChannel())
 
     def use(self, channel):
