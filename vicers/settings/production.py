@@ -46,6 +46,7 @@ REST_FRAMEWORK = {
 # [Unverified] whether requests through Discord's proxy carry an Origin header at
 # all. Allowing it costs nothing either way and is checked against a real request
 # in Phase 1a.
+
 VICE_ARCADE_CLIENT_ID = config('VICE_ARCADE_CLIENT_ID', default='')
 if VICE_ARCADE_CLIENT_ID:
     CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS + [
