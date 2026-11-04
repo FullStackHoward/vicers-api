@@ -106,7 +106,7 @@ makes about itself, and Discord's access token never leaves the server.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `token` | Sign-in: exchanges the OAuth code and turns away anyone not in Vice Gamers. The only use of the client secret. |
-| GET | `appearance` | Public. The uploaded background, logo, tagline and game thumbnails. |
+| GET | `appearance` | Public. The cabinet background, logo and tagline, and each game's thumbnail, background and logo. |
 | POST | `sessions` | Asks Discord again whether the player is in Vice Gamers, then issues a signed single-use session. Fails closed if Discord cannot be reached. |
 | POST | `scores` | Banks one run. |
 | GET | `leaderboards/<game_slug>` | Daily, round and all-time, plus your own rank and the reset time. |
@@ -173,10 +173,13 @@ python manage.py test arcade
 
 Django admin, no deploy. Changes show on the page at its next load.
 
-- **Arcade appearance:** the page background, an optional logo shown instead
-  of the VICE ARCADE heading, and the tagline under it.
-- **Arcade games:** each game's lobby thumbnail, shown at 16:9 (1280x720 is
-  ideal).
+- **Arcade appearance:** the cabinet (lobby) background, an optional logo
+  shown instead of the VICE ARCADE heading, and the tagline under it.
+- **Arcade games:** each game's own look, under **Look**: its lobby thumbnail
+  (16:9, 1280x720 is ideal), the background behind it while it is played, and
+  the logo shown top centre above it. A game with no background uses the
+  built-in backdrop, not the cabinet's; a game with no logo shows its name as a
+  placeholder.
 
 Every image is optional; a blank field leaves the page's built-in look in place.
 Uploads are capped at 5 MB, since they are served as they are to every visitor,

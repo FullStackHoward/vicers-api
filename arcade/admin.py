@@ -168,18 +168,47 @@ class RunPostAdmin(admin.ModelAdmin):
 
 @admin.register(ArcadeGame)
 class ArcadeGameAdmin(admin.ModelAdmin):
-    list_display = ['display_name', 'slug', 'is_active', 'active_from', 'has_thumbnail']
+    list_display = ['display_name', 'slug', 'is_active', 'active_from',
+                    'has_thumbnail', 'has_background', 'has_logo']
     list_filter = ['is_active']
     search_fields = ['slug', 'display_name']
-    readonly_fields = ['thumbnail_preview']
+    readonly_fields = ['thumbnail_preview', 'background_preview', 'logo_preview']
+    fieldsets = [
+        (None, {'fields': ['display_name', 'slug', 'is_active', 'active_from', 'plausibility']}),
+        ('Look', {
+            'description': 'This game\'s own images. The lobby\'s background and logo are '
+                           'on the Arcade appearance screen.',
+            'fields': [
+                'thumbnail', 'thumbnail_preview',
+                'background_image', 'background_preview',
+                'logo_image', 'logo_preview',
+            ],
+        }),
+    ]
 
     @admin.display(description='Thumbnail', boolean=True)
     def has_thumbnail(self, obj):
         return bool(obj.thumbnail)
 
+    @admin.display(description='Background', boolean=True)
+    def has_background(self, obj):
+        return bool(obj.background_image)
+
+    @admin.display(description='Logo', boolean=True)
+    def has_logo(self, obj):
+        return bool(obj.logo_image)
+
     @admin.display(description='Thumbnail preview')
     def thumbnail_preview(self, obj):
         return image_preview(obj.thumbnail)
+
+    @admin.display(description='Background preview')
+    def background_preview(self, obj):
+        return image_preview(obj.background_image, height=180)
+
+    @admin.display(description='Logo preview')
+    def logo_preview(self, obj):
+        return image_preview(obj.logo_image)
 
 
 @admin.register(ArcadeSeason)
