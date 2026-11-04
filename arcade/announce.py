@@ -204,16 +204,38 @@ def _message(color, icon, lines, label, url):
     }
 
 
-def _leader(rows):
+MEDALS = ['🥇', '🥈', '🥉']
+
+# Places shown per board in the pinned post. The full board is in the arcade.
+CALLOUT_TOP = 3
+
+
+def ordinal(place):
+    if 10 <= place % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(place % 10, 'th')
+    return f'{place}{suffix}'
+
+
+def _top_lines(rows, empty):
     if not rows:
-        return None
-    return f'{rows[0]["display_name"]} · {_number(rows[0]["score"])}'
+        return [empty]
+    return [
+        f'{MEDALS[index]} {row["display_name"]} · {_number(row["score"])}'
+        for index, row in enumerate(rows[:CALLOUT_TOP])
+    ]
 
 
 def callout_message(icon, now):
-    """The pinned post: today's and this round's leader per game, and the reset."""
+    """
+    The pinned post: the top three on today's board and this season's board for
+    each game, and when each resets. Edited whenever those change, so it is the
+    running leaderboard in the channel.
+    """
     season = rollover.ensure_current_season(now)
     today = seasons.eastern_date(now)
+    stamp = int(season.ends_at.timestamp())
 
     lines = [
         f'## {PLAY_EMOJI} The arcade is open',
@@ -222,17 +244,37 @@ def callout_message(icon, now):
     ]
 
     for game in ArcadeGame.objects.filter(is_active=True).order_by('display_name'):
-        lines += [
-            '',
-            f'**{game.display_name}**',
-            f'Today: {_leader(leaderboards.daily_rows(game, today)) or "nobody yet. Be the first."}',
-            f'This round: {_leader(leaderboards.season_rows(game, season)) or "up for grabs."}',
-        ]
+        lines += ['', f'### {game.display_name}', '**Today**']
+        lines += _top_lines(leaderboards.daily_rows(game, today), 'Nobody yet. Be the first.')
+        lines += ['', '**This season**']
+        lines += _top_lines(leaderboards.season_rows(game, season), 'Up for grabs.')
 
-    stamp = int(season.ends_at.timestamp())
-    lines += ['', f'Leaderboards reset <t:{stamp}:F> (<t:{stamp}:R>).']
+    lines += [
+        '',
+        'Today\'s board starts fresh every night at midnight Eastern.',
+        f'This season ends <t:{stamp}:F> (<t:{stamp}:R>).',
+    ]
 
     return _message(CALLOUT_COLOR, icon, lines, 'Play Vice Arcade', play_url())
+
+
+def today_line(place, players, best=None):
+    """
+    Where a player stands on today's board, in words. `best` is their best score
+    today, given only when it is not the run being posted.
+    """
+    if players == 1:
+        text = 'The only player on today\'s board so far'
+    elif place == 1:
+        others = players - 1
+        text = f'🥇 1st on today\'s board, ahead of {others} other player{"s" if others != 1 else ""}'
+    else:
+        text = f'{ordinal(place)} on today\'s board, out of {players} players'
+
+    if best is not None:
+        text += f' (best today: {_number(best)})'
+
+    return text + '.'
 
 
 def run_message(post, icon):
@@ -253,8 +295,8 @@ def run_message(post, icon):
     today = leaderboards.daily_rows(game, seasons.eastern_date(score.created_at))
     mine = next((row for row in today if row['discord_user_id'] == score.discord_user_id), None)
     if mine:
-        standing = f' with {_number(mine["score"])}' if mine['score'] != score.score else ''
-        lines.append(f'#{mine["place"]} of {len(today)} on today\'s board{standing}.')
+        best = mine['score'] if mine['score'] != score.score else None
+        lines.append(today_line(mine['place'], len(today), best))
 
     if post.session_runs > 1:
         lines.append(f'{post.session_runs} runs this session, best {_number(post.session_best)}.')

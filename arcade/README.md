@@ -36,10 +36,10 @@ The three Vice Arcade credentials keep their spec names rather than the plain
 to Vice Verify Bot and two different tokens called `BOT_TOKEN` is a mistake
 waiting to happen.
 
-## How a round works
+## How a season works
 
-A round, called a season internally and "this round" to players, is one reset
-cycle. Its length is `reset_interval_days` in Django admin: one value for every
+A season (`ArcadeSeason`, shown to players as **This Season**) is one reset
+cycle. Some older code and the bot's posts still call it a round. Its length is `reset_interval_days` in Django admin: one value for every
 game, default 7, and a change applies to the round in progress by moving its end
 to its start plus the new interval. Lowering it can put that end in the past,
 which never fires a reset nobody saw coming; those are pushed to the next 5 PM
@@ -59,9 +59,9 @@ The API posts these itself, as the Vice Arcade bot over Discord REST
 `events/pending`, so a run is posted within about thirty seconds.
 `manage.py arcade_announce` does the same by hand, or from cron.
 
-**The callout.** One post saying the arcade is open, with today's and this
-round's leader for each game, when the leaderboards reset, and a **Play Vice
-Arcade** button to the cabinet (the front page). It is pinned, edited when the
+**The callout.** One post saying the arcade is open, with the top three on
+today's board and this season's board for each game, when each resets, and a
+**Play Vice Arcade** button to the cabinet (the front page). It is pinned, edited when the
 standings change, and once a day at `ARCADE_CALLOUT_POST_HOUR` it is posted again
 at the bottom of the channel and the old copy deleted. If staff delete it, a new
 one goes up within ten minutes.
