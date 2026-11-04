@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import (
+    announce,
     conf,
     dailyboards,
     departures,
@@ -300,11 +301,14 @@ class PendingEventsView(BotView):
     The outbox drain, and the arcade's heartbeat.
 
     Because the bot polls this every thirty seconds, it is also what makes lazy
-    season and Daily board finalization reliable without a cron job.
+    season and Daily board finalization reliable without a cron job, and it is
+    when the arcade's own channel posts go out (arcade/announce.py), so a run is
+    posted within about thirty seconds of being banked.
     """
 
     def get(self, request):
         tick()
+        announce.tick()
 
         events = ArcadeEvent.objects.filter(handled_at__isnull=True).order_by('created_at', 'id')[:100]
 

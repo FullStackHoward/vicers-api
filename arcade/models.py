@@ -452,3 +452,76 @@ class MemberDeparture(models.Model):
 
     def __str__(self):
         return f'{self.discord_user_id} left at {self.left_at:%Y-%m-%d %H:%M}'
+
+
+class RunPost(models.Model):
+    """
+    One finished run's "just played" post in the arcade channel, from the moment
+    it is banked until arcade/announce.py has posted it, folded it into the
+    player's session post, or decided not to.
+
+    The `session_*` fields describe the post as it stood after this run, so the
+    next run in the same session carries on from them.
+    """
+
+    score = models.OneToOneField(Score, on_delete=models.CASCADE, related_name='run_post')
+    previous_best = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text='The player\'s best on this game before this run, read before it '
+                  'was saved. Blank for a first run.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    handled_at = models.DateTimeField(null=True, blank=True)
+    skipped = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text='Why no post was made, when none was: stale, not_public or failed.',
+    )
+    message_id = models.CharField(max_length=32, blank=True)
+    session_runs = models.PositiveIntegerField(default=1)
+    session_best = models.PositiveIntegerField(default=0)
+    color = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        indexes = [
+            models.Index(fields=['handled_at', 'created_at']),
+        ]
+
+    def __str__(self):
+        state = self.skipped or ('posted' if self.handled_at else 'waiting')
+        return f'Run post for score {self.score_id} ({state})'
+
+
+class ArcadeCallout(models.Model):
+    """
+    The pinned "come and play" post in the arcade channel. One row, always pk=1,
+    written only by arcade/announce.py. Shown read-only in admin, mostly for
+    `last_error`, which is where a missing permission turns up.
+    """
+
+    SINGLETON_PK = 1
+
+    message_id = models.CharField(max_length=32, blank=True)
+    content_hash = models.CharField(max_length=64, blank=True)
+    checked_at = models.DateTimeField(null=True, blank=True)
+    last_repost_day = models.DateField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    last_error_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Arcade callout'
+        verbose_name_plural = 'Arcade callout'
+
+    def __str__(self):
+        return 'Arcade callout'
+
+    def save(self, *args, **kwargs):
+        self.pk = self.SINGLETON_PK
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        row, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
+        return row

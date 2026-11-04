@@ -69,3 +69,41 @@ def bot_api_secret():
 
 def redirect_uris():
     return config('ARCADE_REDIRECT_URIS', default=DEFAULT_REDIRECT_URIS, cast=Csv())
+
+
+# ---------------------------------------------------------------------------
+# The arcade's own posts in Vice Gamers (arcade/announce.py)
+# ---------------------------------------------------------------------------
+
+# Where a finished run's post folds into the player's previous one: runs on one
+# game within this long of each other are one session and share one post.
+RUN_SESSION_MINUTES = 30
+
+# A run older than this when its post comes up is not posted at all, so runs
+# that waited out an outage do not land in a burst as if they had just happened.
+RUN_POST_MAX_AGE_MINUTES = 15
+
+# The callout's standings are checked against Discord at least this often, so a
+# callout staff deleted comes back without waiting for the next day's repost.
+CALLOUT_CHECK_MINUTES = 10
+
+# The server emoji used as the posts' icon, looked up by name so a re-upload
+# needs no change here.
+ICON_EMOJI_NAME = 'vicearcade'
+
+
+def arcade_channel_id():
+    """
+    The channel the callout and run posts go in. Optional: left unset, the arcade
+    posts nothing and everything else carries on.
+    """
+    return str(config('VG_ARCADE_CHANNEL_ID', default='')).strip()
+
+
+def arcade_url():
+    return str(config('ARCADE_URL', default='https://arcade.vicers.net')).strip().rstrip('/')
+
+
+def callout_post_hour():
+    """The hour, Eastern, the callout is moved back to the bottom of the channel."""
+    return config('ARCADE_CALLOUT_POST_HOUR', default=18, cast=int)

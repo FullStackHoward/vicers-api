@@ -18,11 +18,14 @@ environment; a missing value raises when it is first needed.
 |---|---|
 | `VICE_ARCADE_CLIENT_ID` | The Vice Arcade application id. Public. |
 | `VICE_ARCADE_CLIENT_SECRET` | Secret. Used only to exchange a sign-in code for an access token. |
-| `VICE_ARCADE_BOT_TOKEN` | Secret. Used only to look up whether a player is in Vice Gamers. |
+| `VICE_ARCADE_BOT_TOKEN` | Secret. Looks up whether a player is in Vice Gamers, and sends the arcade's channel posts. |
 | `VICE_GAMERS_GUILD_ID` | The server players have to be in. |
 | `ARCADE_SESSION_SIGNING_KEY` | Secret. Signs play sessions and sign-in identities. |
 | `BOT_API_SECRET` | Already present. Authenticates the bot's calls. |
 | `ARCADE_REDIRECT_URIS` | Optional. Comma-separated pages sign-in may return to. Defaults to `https://arcade.vicers.net/,http://localhost:5173/`. |
+| `VG_ARCADE_CHANNEL_ID` | Optional. The channel for the callout and run posts. Left unset, the arcade posts nothing there. |
+| `ARCADE_URL` | Optional. Where the Play buttons go. Defaults to `https://arcade.vicers.net`. |
+| `ARCADE_CALLOUT_POST_HOUR` | Optional. The hour, Eastern, the callout moves back to the bottom of the channel. Defaults to `18`. |
 
 Each redirect also has to be added under OAuth2 > Redirects for the Vice Arcade
 application in the Discord Developer Portal, exactly as written, trailing slash
@@ -48,6 +51,36 @@ cannot do. The bot's thirty-second poll of `events/pending` is the heartbeat, an
 when the bot is down nothing needs advancing because nothing can be posted.
 `manage.py arcade_roll_seasons` does the same work by hand if it is ever wanted
 on a timer.
+
+## Posts in the arcade channel
+
+The API posts these itself, as the Vice Arcade bot over Discord REST
+(`arcade/announce.py`). They go out from the bot's thirty-second poll of
+`events/pending`, so a run is posted within about thirty seconds.
+`manage.py arcade_announce` does the same by hand, or from cron.
+
+**The callout.** One post saying the arcade is open, with today's and this
+round's leader for each game, when the leaderboards reset, and a **Play Vice
+Arcade** button to the cabinet (the front page). It is pinned, edited when the
+standings change, and once a day at `ARCADE_CALLOUT_POST_HOUR` it is posted again
+at the bottom of the channel and the old copy deleted. If staff delete it, a new
+one goes up within ten minutes.
+
+**Run posts.** Every banked run: who scored what, whether it is a personal best,
+where they stand on today's board, and a **Play <game>** button to
+`?play=<slug>`, which opens that game directly. Runs by one player on one game
+within thirty minutes are one session and share one post, which is edited (or
+moved to the bottom, when others have posted since) instead of a new post per
+run. A run held for review as a record is not posted; the record post follows
+approval. A run that waited more than fifteen minutes, because the bot was down,
+is skipped rather than posted late.
+
+The icon is the `:vicearcade:` server emoji, found by name.
+
+**Permissions.** The Vice Arcade bot needs View Channel, Send Messages, Embed
+Links and Pin Messages in the arcade channel. When something is missing, the
+reason is under **Arcade callout** in admin (`last_error`). **Run posts** in admin
+shows each run's post, or why it was skipped.
 
 ## Two rules worth knowing before changing anything
 
