@@ -579,3 +579,19 @@ class AppearanceEndpointTests(ApiMixin, TestCase):
 
         with self.assertRaises(ValidationError):
             limit_image_size(big)
+
+
+class CorsTests(ApiMixin, TestCase):
+    def test_the_browser_may_send_the_identity_header_from_the_arcade_page(self):
+        # Without this, the preflight refuses the header, the browser never sends
+        # the request, and the page can sign in but never start a run.
+        response = self.client.options(
+            '/api/arcade/sessions',
+            HTTP_ORIGIN='http://localhost:5173',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type,x-arcade-identity',
+        )
+
+        allowed = response.headers.get('access-control-allow-headers', '')
+        self.assertIn('x-arcade-identity', allowed)
+        self.assertIn('content-type', allowed)
