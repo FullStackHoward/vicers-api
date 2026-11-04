@@ -210,11 +210,10 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
     """
     Bank one run.
 
-    A score that beats the approved all-time best is saved flagged and unapproved:
-    it shows on boards with a pending marker, and it moves no role until the owner
-    approves it. Everything else that passes the limits is approved on the spot,
-    which the spec states plainly is what makes the plausibility checks the only
-    gate on the podium.
+    A run that passes the plausibility limits is on every board, and counts
+    towards the podium, the moment it is saved. There is no review step: the
+    limits are the only gate, and the owner can still take a score off the
+    boards afterwards with `remove_score`.
     """
     now = now or timezone.now()
     session_id = read_session_token(token)
@@ -238,11 +237,20 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
         .first()
     )
 
+    # Read before this run is saved: the best of everybody else, which is the
+    # record this run has to pass to be posted as a new one. The first score onto
+    # an empty board is nobody's record to lose, so it posts nothing.
+    previous_record = (
+        leaderboards.visible_scores(session.game)
+        .exclude(discord_user_id=str(discord_user_id))
+        .order_by('-score', 'created_at', 'id')
+        .first()
+    )
     record_to_beat = leaderboards.alltime_best(session.game)
-    beats_record = record_to_beat is None or score > record_to_beat.score
-    # The first score onto an empty board is not a displacement, so it is not
-    # treated as a record awaiting review.
-    is_pending_record = beats_record and record_to_beat is not None
+    is_new_record = (
+        previous_record is not None
+        and score > record_to_beat.score
+    )
 
     saved = Score.objects.create(
         discord_user_id=str(discord_user_id),
@@ -252,16 +260,19 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
         score=score,
         run_stats=stats,
         input_log=input_log,
-        flagged=is_pending_record,
-        approved=not is_pending_record,
     )
 
     session.used = True
     session.save(update_fields=['used'])
 
-    if is_pending_record:
+    leaderboards.recompute_personal_best(saved.discord_user_id, session.game)
+
+    season = rollover.ensure_current_season(now)
+    podium.refresh(season)
+
+    if is_new_record:
         ArcadeEvent.objects.create(
-            type=EventType.RECORD_PENDING_REVIEW,
+            type=EventType.NEW_ALLTIME_RECORD,
             payload={
                 'score_id': saved.id,
                 'game_slug': session.game.slug,
@@ -269,75 +280,15 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
                 'discord_user_id': saved.discord_user_id,
                 'display_name': saved.display_name,
                 'score': saved.score,
-                'previous_best': record_to_beat.score,
-                'previous_holder': record_to_beat.discord_user_id,
-                'run_stats': stats,
+                'previous_best': previous_record.score,
+                'previous_holder': previous_record.discord_user_id,
             },
         )
 
-    leaderboards.recompute_personal_best(saved.discord_user_id, session.game)
-
-    season = rollover.ensure_current_season(now)
-    podium.refresh(season)
-
     # Queued for the "just played" post in the arcade channel (arcade/announce.py).
-    # Not for a run held for review: its score is not public yet, and the record
-    # post follows approval instead.
-    if not is_pending_record:
-        RunPost.objects.create(score=saved, previous_best=previous_best)
+    RunPost.objects.create(score=saved, previous_best=previous_best)
 
     return saved
-
-
-@transaction.atomic
-def approve_score(score, now=None):
-    """
-    Owner review: let a flagged record count.
-
-    The public record post is written here rather than at submit, so nothing is
-    announced before the owner has looked at it. It is written only when a
-    different player is displaced, because the first score onto an empty board is
-    nobody's record to lose.
-    """
-    now = now or timezone.now()
-
-    # Guarded on `approved` alone. `flagged` is history that stays set after review,
-    # so including it here would let a second approval announce the same record twice.
-    if score.approved:
-        return None
-
-    previous = (
-        leaderboards.counting_scores(score.game)
-        .exclude(discord_user_id=score.discord_user_id)
-        .order_by('-score', 'created_at', 'id')
-        .first()
-    )
-
-    score.approved = True
-    score.save(update_fields=['approved'])
-
-    leaderboards.recompute_personal_best(score.discord_user_id, score.game)
-
-    season = rollover.ensure_current_season(now)
-    podium.refresh(season)
-
-    displaced_someone = previous is not None and score.score > previous.score
-    if not displaced_someone:
-        return None
-
-    return ArcadeEvent.objects.create(
-        type=EventType.NEW_ALLTIME_RECORD,
-        payload={
-            'score_id': score.id,
-            'game_slug': score.game.slug,
-            'game_display_name': score.game.display_name,
-            'discord_user_id': score.discord_user_id,
-            'display_name': score.display_name,
-            'score': score.score,
-            'previous_best': previous.score,
-            'previous_holder': previous.discord_user_id,
-        },
-    )
 
 
 @transaction.atomic

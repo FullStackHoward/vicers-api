@@ -1,12 +1,8 @@
 """
 The three boards: Daily, season, and All-Time.
 
-Visibility and scoring are two different questions and are kept apart:
-
-- A score is *visible* when it is not removed. That is what a board shows, so a
-  record still awaiting review appears immediately with a pending marker.
-- A score *counts* when it is visible and approved. That is what moves a podium
-  role, so an unreviewed record cannot hand anyone a role.
+A score is on the boards, and counts towards the podium, as soon as it is banked
+and for as long as it is not removed. There is no review step.
 
 Departed players need no special case here. A departure marks their scores
 removed, so every query below stops showing them and everyone underneath moves up.
@@ -27,16 +23,11 @@ PLACEMENT_CAP = 11
 
 
 def visible_scores(game=None):
-    """Everything a board may show: not removed, approved or still pending review."""
+    """Everything a board shows and the podium counts: anything not removed."""
     queryset = Score.objects.filter(removed=False)
     if game is not None:
         queryset = queryset.filter(game=game)
     return queryset
-
-
-def counting_scores(game=None):
-    """Everything that may move a podium role: visible and approved."""
-    return visible_scores(game).filter(approved=True)
 
 
 def _rank(queryset):
@@ -60,7 +51,6 @@ def _rank(queryset):
             'discord_user_id': score.discord_user_id,
             'display_name': score.display_name,
             'score': score.score,
-            'pending': not score.approved,
             'score_id': score.id,
             'achieved_at': score.created_at,
         })
@@ -68,32 +58,30 @@ def _rank(queryset):
     return rows
 
 
-def window_rows(game, start, end, counting_only=False):
+def window_rows(game, start, end):
     """Ranked rows for one game inside a half-open instant range."""
-    source = counting_scores(game) if counting_only else visible_scores(game)
-    return _rank(source.filter(created_at__gte=start, created_at__lt=end))
+    return _rank(visible_scores(game).filter(created_at__gte=start, created_at__lt=end))
 
 
-def alltime_rows(game, counting_only=False):
+def alltime_rows(game):
     """
     Ranked rows with no window: each player's best score ever.
 
     Computed from Score rather than from PersonalBest so that removing a score,
     whether by review or by a departure, corrects this board with no extra step.
     """
-    source = counting_scores(game) if counting_only else visible_scores(game)
-    return _rank(source)
+    return _rank(visible_scores(game))
 
 
-def daily_rows(game, day, counting_only=False):
+def daily_rows(game, day):
     from . import seasons
 
     start, end = seasons.eastern_day_bounds(day)
-    return window_rows(game, start, end, counting_only=counting_only)
+    return window_rows(game, start, end)
 
 
-def season_rows(game, season, counting_only=False):
-    return window_rows(game, season.starts_at, season.ends_at, counting_only=counting_only)
+def season_rows(game, season):
+    return window_rows(game, season.starts_at, season.ends_at)
 
 
 def board_view(rows, discord_user_id=None):
@@ -138,8 +126,7 @@ def recompute_personal_best(discord_user_id, game):
     """
     Rebuild one player's stored best from their visible scores.
 
-    Called after anything that can invalidate it: a review removal, an approval, or
-    a departure. Returns the PersonalBest row, or None when the player has no
+    Called after anything that can invalidate it: an owner removal or a departure. Returns the PersonalBest row, or None when the player has no
     visible scores left, in which case the row is deleted.
     """
     best = (
@@ -165,13 +152,9 @@ def recompute_personal_best(discord_user_id, game):
     return row
 
 
-def alltime_best(game, counting_only=True):
-    """
-    The score to beat for the record check. Approved only by default: an unreviewed
-    record must not raise the bar that decides whether the next one is flagged.
-    """
-    source = counting_scores(game) if counting_only else visible_scores(game)
-    return source.order_by('-score', 'created_at', 'id').first()
+def alltime_best(game):
+    """The score to beat for the record check."""
+    return visible_scores(game).order_by('-score', 'created_at', 'id').first()
 
 
 def strip_player_from_daily_boards(discord_user_id):

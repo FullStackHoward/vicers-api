@@ -28,7 +28,6 @@ def _entries_for(game, day):
             'discord_user_id': row['discord_user_id'],
             'display_name': row['display_name'],
             'score': row['score'],
-            'pending': row['pending'],
         }
         for row in rows
     ]

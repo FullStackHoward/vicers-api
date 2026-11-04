@@ -5,7 +5,7 @@ from unittest import mock
 from django.test import TestCase
 from django.utils import timezone
 
-from arcade import departures, discord_api, leaderboards, play
+from arcade import departures, discord_api, leaderboards, play, podium
 from arcade.models import (
     ArcadeEvent,
     EventType,
@@ -133,16 +133,14 @@ class SubmitTests(ArcadeEnvMixin, TestCase):
         base.update(overrides)
         return base
 
-    def test_the_first_score_onto_an_empty_board_is_approved_with_no_review(self):
+    def test_the_first_score_onto_an_empty_board_posts_no_record(self):
         session, token = self.start()
-        saved = play.submit_score(
+        play.submit_score(
             token, 'player', 'Player', 500,
             self.stats(seed=session.seed), now=self.now,
         )
 
-        self.assertTrue(saved.approved)
-        self.assertFalse(saved.flagged)
-        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.RECORD_PENDING_REVIEW).count(), 0)
+        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.NEW_ALLTIME_RECORD).count(), 0)
 
     def test_the_session_is_spent(self):
         session, token = self.start()
@@ -228,8 +226,6 @@ class SubmitTests(ArcadeEnvMixin, TestCase):
         self.assertIsNone(post.handled_at)
 
     def test_the_queued_post_knows_the_best_the_run_was_up_against(self):
-        # A higher record held by somebody else, so these runs are not held for
-        # review as all-time records.
         self.play('holder', 'Holder', 1000)
         self.play('player', 'Player', 300)
         self.play('player', 'Player', 450)
@@ -240,40 +236,54 @@ class SubmitTests(ArcadeEnvMixin, TestCase):
         self.assertEqual(better.previous_best, 300)
         self.assertEqual(worse.previous_best, 450)
 
-    def test_a_run_held_for_review_is_not_queued_as_played(self):
+    def test_a_record_run_is_queued_as_played_like_any_other(self):
         self.play('holder', 'Holder', 400)
         self.play('challenger', 'Challenger', 900)
 
-        self.assertEqual([post.score.display_name for post in self.queued()], ['Holder'])
-        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.RECORD_PENDING_REVIEW).count(), 1)
+        self.assertEqual(
+            [post.score.display_name for post in self.queued()],
+            ['Holder', 'Challenger'],
+        )
 
-    def test_a_score_above_the_record_is_saved_pending_review(self):
+    def test_a_score_above_the_record_is_posted_as_a_record_at_once(self):
         make_score(self.game, 'holder', 400, self.now - timedelta(hours=1))
         session, token = self.start(user='challenger')
 
-        saved = play.submit_score(
+        play.submit_score(
             token, 'challenger', 'Challenger', 900,
             self.stats(seed=session.seed), now=self.now,
         )
 
-        self.assertTrue(saved.flagged)
-        self.assertFalse(saved.approved)
-
-        event = ArcadeEvent.objects.get(type=EventType.RECORD_PENDING_REVIEW)
+        event = ArcadeEvent.objects.get(type=EventType.NEW_ALLTIME_RECORD)
+        self.assertEqual(event.payload['score'], 900)
         self.assertEqual(event.payload['previous_best'], 400)
         self.assertEqual(event.payload['previous_holder'], 'holder')
+        self.assertFalse(ArcadeEvent.objects.filter(type='record_pending_review').exists())
 
-    def test_a_pending_record_shows_on_the_board_but_takes_no_role(self):
+    def test_a_score_below_the_record_posts_no_record(self):
+        make_score(self.game, 'holder', 400, self.now - timedelta(hours=1))
+        session, token = self.start(user='challenger')
+
+        play.submit_score(
+            token, 'challenger', 'Challenger', 300,
+            self.stats(seed=session.seed), now=self.now,
+        )
+
+        self.assertFalse(ArcadeEvent.objects.filter(type=EventType.NEW_ALLTIME_RECORD).exists())
+
+    def test_a_record_counts_on_the_board_and_for_the_role_at_once(self):
         make_score(self.game, 'holder', 400, self.now - timedelta(hours=1))
         session, token = self.start(user='challenger')
         play.submit_score(token, 'challenger', 'Challenger', 900, self.stats(seed=session.seed), now=self.now)
 
         board = leaderboards.season_rows(self.game, self.season)
-        counting = leaderboards.season_rows(self.game, self.season, counting_only=True)
 
         self.assertEqual(board[0]['discord_user_id'], 'challenger')
-        self.assertTrue(board[0]['pending'])
-        self.assertEqual([r['discord_user_id'] for r in counting], ['holder'])
+        self.assertNotIn('pending', board[0])
+        self.assertEqual(
+            [r['discord_user_id'] for r in podium.current_holders(self.season)],
+            ['challenger', 'holder'],
+        )
 
     def test_a_personal_best_is_recorded(self):
         session, token = self.start()
@@ -356,55 +366,12 @@ class PlausibilityTests(ArcadeEnvMixin, TestCase):
         self.assertIsNotNone(self.submit(10 ** 9, pieces_placed=1, duration_ms=1))
 
 
-class ReviewTests(ArcadeEnvMixin, TestCase):
+class OwnerRemovalTests(ArcadeEnvMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.season = make_season(eastern(2026, 11, 8, 17))
         self.game = make_game()
         self.moment = self.season.starts_at + timedelta(hours=1)
-
-    def test_approving_a_record_that_displaced_someone_announces_it(self):
-        make_score(self.game, 'holder', 400, self.moment)
-        record = make_score(self.game, 'new', 900, self.moment + timedelta(minutes=5),
-                            approved=False, flagged=True)
-
-        event = play.approve_score(record, now=self.moment + timedelta(minutes=10))
-
-        self.assertIsNotNone(event)
-        self.assertEqual(event.type, EventType.NEW_ALLTIME_RECORD)
-        self.assertEqual(event.payload['previous_holder'], 'holder')
-        self.assertEqual(event.payload['score'], 900)
-
-    def test_approving_the_only_score_on_the_board_announces_nothing(self):
-        lonely = make_score(self.game, 'first', 900, self.moment, approved=False, flagged=True)
-
-        event = play.approve_score(lonely, now=self.moment)
-
-        self.assertIsNone(event)
-        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.NEW_ALLTIME_RECORD).count(), 0)
-
-    def test_approving_a_record_lets_it_take_the_role(self):
-        make_score(self.game, 'holder', 400, self.moment)
-        record = make_score(self.game, 'new', 900, self.moment, approved=False, flagged=True)
-
-        play.approve_score(record, now=self.moment)
-
-        from arcade import podium
-        self.assertEqual(
-            [r['discord_user_id'] for r in podium.current_holders(self.season)],
-            ['new', 'holder'],
-        )
-
-    def test_approving_twice_announces_once(self):
-        make_score(self.game, 'holder', 400, self.moment)
-        record = make_score(self.game, 'new', 900, self.moment, approved=False, flagged=True)
-
-        play.approve_score(record, now=self.moment)
-        record.refresh_from_db()
-        again = play.approve_score(record, now=self.moment)
-
-        self.assertIsNone(again)
-        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.NEW_ALLTIME_RECORD).count(), 1)
 
     def test_removing_a_score_takes_it_off_every_board(self):
         keep = make_score(self.game, 'keeper', 100, self.moment)

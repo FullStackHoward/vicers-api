@@ -191,8 +191,8 @@ class ArcadeSeasonAdmin(admin.ModelAdmin):
 
 @admin.register(Score)
 class ScoreAdmin(admin.ModelAdmin):
-    list_display = ['display_name', 'game', 'score', 'created_at', 'flagged', 'approved', 'removed']
-    list_filter = ['game', 'flagged', 'approved', 'removed', 'removal_reason']
+    list_display = ['display_name', 'game', 'score', 'created_at', 'removed']
+    list_filter = ['game', 'removed', 'removal_reason']
     search_fields = ['discord_user_id', 'display_name']
     readonly_fields = ['run_stats', 'input_log', 'created_at']
     date_hierarchy = 'created_at'

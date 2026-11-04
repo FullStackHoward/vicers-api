@@ -41,23 +41,9 @@ class SingleGameTests(TestCase):
 
         self.assertEqual([r['discord_user_id'] for r in rows], ['early', 'late'])
 
-    def test_a_score_pending_review_shows_on_the_board_but_moves_no_role(self):
+    def test_a_new_top_score_moves_the_role_straight_away(self):
         make_score(self.game, 'a', 100, self.moment)
-        make_score(self.game, 'cheat', 999, self.moment, approved=False, flagged=True)
-
-        board = leaderboards.season_rows(self.game, self.season)
-        standings = podium.standings(self.season)
-
-        self.assertEqual(board[0]['discord_user_id'], 'cheat')
-        self.assertTrue(board[0]['pending'])
-        self.assertEqual([r['discord_user_id'] for r in standings], ['a'])
-
-    def test_approving_a_pending_record_then_moves_the_role(self):
-        make_score(self.game, 'a', 100, self.moment)
-        record = make_score(self.game, 'record', 999, self.moment, approved=False, flagged=True)
-
-        record.approved = True
-        record.save(update_fields=['approved'])
+        make_score(self.game, 'record', 999, self.moment)
 
         self.assertEqual(
             [r['discord_user_id'] for r in podium.standings(self.season)],

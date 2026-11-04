@@ -309,7 +309,7 @@ def post_runs(channel_id, icon, now, deadline=None):
 
         score = post.score
 
-        if score.removed or not score.approved:
+        if score.removed:
             _skip(post, 'not_public', now)
             continue
 

@@ -71,8 +71,7 @@ where they stand on today's board, and a **Play <game>** button to
 `?play=<slug>`, which opens that game directly. Runs by one player on one game
 within thirty minutes are one session and share one post, which is edited (or
 moved to the bottom, when others have posted since) instead of a new post per
-run. A run held for review as a record is not posted; the record post follows
-approval. A run that waited more than fifteen minutes, because the bot was down,
+run. A run that waited more than fifteen minutes, because the bot was down,
 is skipped rather than posted late.
 
 The icon is the `:vicearcade:` server emoji, found by name.
@@ -121,7 +120,7 @@ compared in constant time.
 |---|---|
 | GET | `events/pending` |
 | POST | `events/<id>/ack` |
-| POST | `scores/<id>/approve`, `scores/<id>/remove` |
+| POST | `scores/<id>/remove` |
 | GET | `podium/current`, `standings/live` |
 | GET | `seasons/closing`, `seasons/<id>/preview` |
 | POST | `seasons/<id>/finalize` |
@@ -151,10 +150,11 @@ a past podium can read 1st and 3rd with 2nd missing.
 
 The game runs on the player's device, so a determined cheater can fake inputs.
 The plausibility limits in `ArcadeGame.plausibility` raise the effort required
-and nothing more. Replaying a flagged run server side from its seed and input log
-would be the next step up and is out of scope for v1. A score that beats the
-approved all-time best is saved flagged and unapproved, so it shows with a
-pending marker and moves no role until it is reviewed.
+and nothing more. Replaying a suspicious run server side from its seed and input
+log would be the next step up and is out of scope for v1. There is no review
+step: a run that passes the limits is on the boards, counts for the podium, and
+is posted as a record if it is one, the moment it is banked. The owner can still
+take a score off every board afterwards (`scores/<id>/remove`).
 
 `max_score_per_piece` is intentionally unset on the seeded Vetrix row. It is the
 most useful of the checks and needs real numbers from a playtest; a guess that is
