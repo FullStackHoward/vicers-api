@@ -23,6 +23,11 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.vicecreators.com",
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://api.vicers.net',
+    'https://www.api.vicers.net',
+]
+
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
