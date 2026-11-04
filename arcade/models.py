@@ -18,6 +18,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class SeasonStatus(models.TextChoices):
@@ -535,3 +536,94 @@ class ArcadeCallout(models.Model):
     def load(cls):
         row, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
         return row
+
+
+class WipedBoard(models.TextChoices):
+    DAILY = 'daily', 'Today'
+    SEASON = 'season', 'This season'
+
+
+class BoardWipe(models.Model):
+    """
+    The owner cleared a board with /arcade wipe-today or /arcade wipe-season.
+
+    Nothing is deleted. The board's window simply starts at the wipe from then on
+    (arcade/leaderboards.py), so the runs stay on All Time and on any board the
+    wipe did not name, and the record of who wiped what stays here.
+    """
+
+    board = models.CharField(max_length=12, choices=WipedBoard.choices)
+    wiped_at = models.DateTimeField(db_index=True)
+    wiped_by = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text='The Discord id of whoever ran the command.',
+    )
+
+    class Meta:
+        ordering = ['-wiped_at']
+
+    def __str__(self):
+        return f'{self.get_board_display()} wiped at {self.wiped_at:%Y-%m-%d %H:%M}'
+
+
+class ChannelPurge(models.Model):
+    """
+    Emptying the arcade channel after /arcade reset.
+
+    Done a little at a time from the posting tick (arcade/announce.py) rather than
+    inside the command, because Discord wants an answer to a slash command within
+    three seconds and a busy channel takes longer than that to clear. Only messages
+    from before the reset are deleted.
+    """
+
+    requested_at = models.DateTimeField(default=timezone.now)
+    requested_by = models.CharField(max_length=32, blank=True)
+    before_message_id = models.CharField(
+        max_length=32,
+        help_text='Where the purge has got to: messages older than this are still to be deleted. Starts at the moment of the reset and moves back as it goes.',
+    )
+    deleted = models.PositiveIntegerField(default=0)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    # The command's reply, edited when the purge finishes. Discord only honours the
+    # token for fifteen minutes, and it is cleared once used.
+    application_id = models.CharField(max_length=32, blank=True)
+    interaction_token = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+
+    def __str__(self):
+        state = 'finished' if self.finished_at else 'running'
+        return f'Arcade channel purge ({state}, {self.deleted} deleted)'
+
+
+class PlayerAlert(models.Model):
+    """
+    A DM waiting to tell a player someone took their first place. Queued when the
+    score is banked, sent from the posting tick (arcade/announce.py), and only to a
+    player who has turned alerts on (ArcadeAlertOptIn).
+    """
+
+    discord_user_id = models.CharField(max_length=32, db_index=True)
+    game = models.ForeignKey(ArcadeGame, on_delete=models.CASCADE, related_name='+')
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    handled_at = models.DateTimeField(null=True, blank=True)
+    skipped = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text='Why no DM was sent, when none was: alerts_off, cooldown, stale, '
+                  'dms_closed or failed.',
+    )
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        indexes = [
+            models.Index(fields=['handled_at', 'created_at']),
+        ]
+
+    def __str__(self):
+        state = self.skipped or ('sent' if self.handled_at else 'waiting')
+        return f'First place alert for {self.discord_user_id} ({state})'

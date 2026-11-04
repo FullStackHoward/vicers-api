@@ -147,6 +147,16 @@ def revised_season_end(starts_at, interval_days, now):
     return next_daily_occurrence(now + MIN_NOTICE)
 
 
+def fresh_season_end(now, interval_days):
+    """
+    Where the season started by /arcade reset ends: 5 PM Eastern, `interval_days`
+    calendar days from today. A full season, rather than running only to the next
+    Sunday the way the very first one did, so a reset late in the week does not
+    leave a season of a day or two.
+    """
+    return localize(eastern_date(now) + timedelta(days=interval_days))
+
+
 def eastern_day_bounds(day):
     """
     The half-open instant range covering one Eastern calendar day.

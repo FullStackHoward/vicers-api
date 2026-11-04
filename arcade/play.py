@@ -17,7 +17,7 @@ from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 
-from . import conf, departures, discord_api, leaderboards, plausibility, podium, rollover
+from . import alerts, conf, departures, discord_api, leaderboards, plausibility, podium, rollover
 from .models import (
     ArcadeEvent,
     ArcadeSeason,
@@ -252,6 +252,10 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
         and score > record_to_beat.score
     )
 
+    # Who is first before this run, for the opt-in "your first place was taken" DM.
+    season = rollover.ensure_current_season(now)
+    leaders = alerts.leaders_before(session.game, season)
+
     saved = Score.objects.create(
         discord_user_id=str(discord_user_id),
         display_name=display_name[:64],
@@ -267,8 +271,8 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
 
     leaderboards.recompute_personal_best(saved.discord_user_id, session.game)
 
-    season = rollover.ensure_current_season(now)
     podium.refresh(season)
+    alerts.queue(saved, leaders)
 
     if is_new_record:
         ArcadeEvent.objects.create(

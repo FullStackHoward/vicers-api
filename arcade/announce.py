@@ -23,6 +23,15 @@ Run posts
     reposts it at the bottom and deletes the old one. Twenty runs in a row are
     one post, not twenty.
 
+After /arcade reset
+    The channel is emptied first (ChannelPurge, arcade/wipes.py), a little each
+    tick, and nothing is posted until it is clear, so a fresh callout is not
+    deleted along with the old posts.
+
+First-place alerts
+    The opt-in DMs (arcade/alerts.py) go out from here too, before the channel
+    work, and do not need the channel to be set.
+
 Nothing here may break the poll that calls it. Discord being down leaves the
 work queued for the next tick; a missing permission is written to the callout's
 `last_error`, which admin shows.
@@ -37,8 +46,8 @@ from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
-from . import conf, discord_api, leaderboards, rollover, seasons
-from .models import ArcadeCallout, ArcadeGame, RunPost
+from . import alerts, conf, discord_api, leaderboards, rollover, seasons
+from .models import ArcadeCallout, ArcadeGame, ChannelPurge, RunPost
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +99,21 @@ def tick(now=None):
     Does nothing until VG_ARCADE_CHANNEL_ID is set, so the API can be deployed
     ahead of that.
     """
-    channel_id = conf.arcade_channel_id()
-    if not channel_id:
-        return
-
     now = now or timezone.now()
     deadline = time.monotonic() + TICK_BUDGET_SECONDS
 
     try:
+        alerts.send_waiting(now, deadline)
+    except Exception:
+        logger.exception('Vice Arcade: sending first place alerts failed')
+
+    channel_id = conf.arcade_channel_id()
+    if not channel_id:
+        return
+
+    try:
+        if not purge_channel(channel_id, now, deadline):
+            return
         icon = icon_url()
         post_runs(channel_id, icon, now, deadline)
         if time.monotonic() < deadline:
@@ -516,3 +532,123 @@ def _repost(channel_id, callout, payload, digest, now):
         discord_api.delete_message(channel_id, old)
     except (discord_api.DiscordError, discord_api.DiscordUnavailable):
         pass  # Already gone, or left for staff. The new callout is up either way.
+
+
+# ---------------------------------------------------------------------------
+# Emptying the channel after /arcade reset
+# ---------------------------------------------------------------------------
+
+# Bulk delete is refused for anything older than two weeks. An hour's margin keeps
+# a message right on the line out of a bulk call that would fail whole.
+BULK_SAFE_AGE = timedelta(days=discord_api.BULK_DELETE_MAX_AGE_DAYS) - timedelta(hours=1)
+
+# A command's reply can only be edited for this long after it was sent.
+REPLY_EDITABLE = timedelta(minutes=15)
+
+# Messages Discord will not delete at all (some system messages). Stepped over.
+UNDELETABLE_CODES = {discord_api.UNKNOWN_MESSAGE, 50021}
+
+PERMISSION_CODES = {50001, 50013}
+
+def _made_at(message_id):
+    from datetime import datetime, timezone as dt_timezone
+
+    from .wipes import DISCORD_EPOCH_MS
+
+    ms = (int(message_id) >> 22) + DISCORD_EPOCH_MS
+    return datetime.fromtimestamp(ms / 1000, tz=dt_timezone.utc)
+
+
+def _tell_owner(job, now, text):
+    if not (job.application_id and job.interaction_token):
+        return
+    if now - job.requested_at > REPLY_EDITABLE:
+        return
+    try:
+        discord_api.edit_interaction_reply(job.application_id, job.interaction_token, {
+            'content': text,
+            'components': [],
+            'allowed_mentions': {'parse': []},
+        })
+    except (discord_api.DiscordError, discord_api.DiscordUnavailable) as error:
+        logger.info('Vice Arcade: could not update the /arcade reset reply: %s', error)
+
+
+def _finish_purge(job, channel_id, now, problem=''):
+    if problem:
+        text = (
+            f'Scores are reset and a fresh season has started, but <#{channel_id}> could '
+            f'not be cleared: {problem} Delete the old messages by hand, or give the Vice '
+            f'Arcade bot Manage Messages and Read Message History there and run '
+            f'`/arcade reset` again.'
+        )
+    else:
+        text = (
+            f'Reset finished. Deleted {job.deleted:,} message{"s" if job.deleted != 1 else ""} '
+            f'from <#{channel_id}>, and a fresh pinned post is going up now.'
+        )
+
+    _tell_owner(job, now, text)
+
+    job.finished_at = now
+    job.last_error = problem
+    job.interaction_token = ''
+    job.save(update_fields=['finished_at', 'last_error', 'interaction_token'])
+
+
+def purge_channel(channel_id, now, deadline=None):
+    """
+    Delete what was in the channel before a reset, as much as fits in this tick.
+    Returns True once there is nothing left, which is when posting may resume.
+    """
+    job = ChannelPurge.objects.filter(finished_at__isnull=True).order_by('requested_at').first()
+    if job is None:
+        return True
+
+    try:
+        while deadline is None or time.monotonic() < deadline:
+            batch = discord_api.list_messages(channel_id, job.before_message_id) or []
+            if not batch:
+                _finish_purge(job, channel_id, now)
+                return True
+
+            ids = [message['id'] for message in batch]
+            fresh = [i for i in ids if now - _made_at(i) < BULK_SAFE_AGE]
+            old = [i for i in ids if i not in fresh]
+
+            if len(fresh) >= 2:
+                discord_api.bulk_delete(channel_id, fresh)
+            elif fresh:
+                old = fresh + old
+
+            job.deleted += len(fresh) if len(fresh) >= 2 else 0
+            job.save(update_fields=['deleted'])
+
+            for message_id in old:
+                if deadline is not None and time.monotonic() >= deadline:
+                    return False
+                try:
+                    discord_api.delete_message(channel_id, message_id)
+                    job.deleted += 1
+                    job.save(update_fields=['deleted'])
+                except discord_api.DiscordError as error:
+                    if error.code not in UNDELETABLE_CODES:
+                        raise
+
+            # Everything in this batch is gone or cannot go, so the next page starts
+            # below it. Moving the cursor is what steps over an undeletable message.
+            job.before_message_id = min(ids, key=int)
+            job.save(update_fields=['before_message_id'])
+    except (discord_api.DiscordError, discord_api.DiscordUnavailable) as error:
+        if isinstance(error, discord_api.DiscordError) and (
+            error.code in PERMISSION_CODES or error.status == 403
+        ):
+            problem = (f'Discord said "{error}". The Vice Arcade bot needs Manage Messages '
+                       f'and Read Message History in the arcade channel.')
+            record_error(f'Clearing the channel after a reset: {problem}')
+            _finish_purge(job, channel_id, now, problem=problem)
+            return True
+        # Rate limited or Discord is down: carry on next tick.
+        logger.warning('Vice Arcade: clearing the channel after a reset: %s', error)
+
+    return False

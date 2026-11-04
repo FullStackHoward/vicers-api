@@ -26,6 +26,7 @@ environment; a missing value raises when it is first needed.
 | `VG_ARCADE_CHANNEL_ID` | Optional. The channel for the callout and run posts. Left unset, the arcade posts nothing there. |
 | `ARCADE_URL` | Optional. Where the Play buttons go. Defaults to `https://arcade.vicers.net`. |
 | `ARCADE_CALLOUT_POST_HOUR` | Optional. The hour, Eastern, the callout moves back to the bottom of the channel. Defaults to `18`. |
+| `VICE_ARCADE_PUBLIC_KEY` | The Public Key from General Information in the Developer Portal. Not a secret. Checks that an `/arcade` command really came from Discord. |
 
 Each redirect also has to be added under OAuth2 > Redirects for the Vice Arcade
 application in the Discord Developer Portal, exactly as written, trailing slash
@@ -110,6 +111,13 @@ makes about itself, and Discord's access token never leaves the server.
 | POST | `sessions` | Asks Discord again whether the player is in Vice Gamers, then issues a signed single-use session. Fails closed if Discord cannot be reached. |
 | POST | `scores` | Banks one run. |
 | GET | `leaderboards/<game_slug>` | Daily, round and all-time, plus your own rank and the reset time. |
+| GET, PUT | `me/alerts` | The player's first-place DM setting, `{"enabled": true}`. Off until they turn it on. |
+
+### Discord
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `discord/interactions` | The Interactions Endpoint URL for the `/arcade` command. Refuses anything Discord did not sign, or signed more than five minutes ago. |
 
 ### The bot
 
@@ -162,6 +170,42 @@ personal bests, the podium and any finished round it was in, which is why the
 `max_score_per_piece` is intentionally unset on the seeded Vetrix row. It is the
 most useful of the checks and needs real numbers from a playtest; a guess that is
 too tight would reject genuine runs.
+
+## The owner's /arcade command
+
+`/arcade wipe-today`, `/arcade wipe-season` and `/arcade reset`, for the server
+owner only (checked against Discord on every use, not just hidden from the list).
+Each answers privately with Confirm and Cancel, and nothing happens until Confirm.
+
+- **wipe-today** clears Today for every game. The runs stay on This Season and All Time.
+- **wipe-season** clears This Season and Today, and the podium roles come off. The
+  runs stay on All Time, and the season still ends when it was going to.
+- **reset** deletes every score, personal best, board, season and podium result,
+  starts a fresh season ending at 5 PM Eastern one interval from today, takes the
+  roles off, and deletes every message in the arcade channel from before the reset.
+  Players' alert settings are kept.
+
+The wipes delete nothing: each is a `BoardWipe` row, and the board's window starts
+there from then on (`leaderboards.board_start`). The reset empties the channel from
+the posting tick, a little at a time, and posts nothing until it is clear; it needs
+Manage Messages and Read Message History in the channel.
+
+Setting it up, once:
+
+1. Put the Public Key from the Developer Portal in `.env` as `VICE_ARCADE_PUBLIC_KEY`,
+   `pip install -r requirements.txt` (PyNaCl checks the signatures), migrate and restart.
+2. In the Developer Portal, set the Interactions Endpoint URL to
+   `https://api.vicers.net/api/arcade/discord/interactions`. Discord tests it on save.
+3. `python manage.py arcade_register_commands`. It also reports the old Activity's
+   global `/arcade` Entry Point command; `--remove-entry-point` deletes it.
+
+## First-place alerts
+
+A DM when someone takes your first place on This Season or All Time, for players
+who turn it on from the arcade page. One DM covers both boards, a player gets at
+most one per game every 30 minutes, and an alert that could not go out within 30
+minutes is dropped. Queued when the score is banked (`PlayerAlert`) and sent from
+the posting tick. A player whose DMs are closed is noted in admin, not retried.
 
 ## Tests
 

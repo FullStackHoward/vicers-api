@@ -55,6 +55,14 @@ def bot_token():
     return _required('VICE_ARCADE_BOT_TOKEN')
 
 
+def public_key():
+    """
+    The Vice Arcade app's public key, from General Information in the Developer
+    Portal. Not a secret: it checks that a slash command really came from Discord.
+    """
+    return _required('VICE_ARCADE_PUBLIC_KEY')
+
+
 def guild_id():
     return _required('VICE_GAMERS_GUILD_ID')
 
@@ -107,3 +115,19 @@ def arcade_url():
 def callout_post_hour():
     """The hour, Eastern, the callout is moved back to the bottom of the channel."""
     return config('ARCADE_CALLOUT_POST_HOUR', default=18, cast=int)
+
+
+# ---------------------------------------------------------------------------
+# First-place alerts by DM (arcade/alerts.py)
+# ---------------------------------------------------------------------------
+
+# One DM per player per game in this long, so two players trading first place
+# all evening do not fill each other's DMs.
+ALERT_COOLDOWN_MINUTES = 30
+
+# An alert that could not be sent within this long is dropped rather than sent late.
+ALERT_MAX_AGE_MINUTES = 30
+
+# A slash command or button press signed longer ago than this is refused, so a
+# captured request cannot be replayed later.
+INTERACTION_MAX_AGE_SECONDS = 5 * 60

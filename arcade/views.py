@@ -11,18 +11,27 @@ There is no cron job. See arcade/rollover.py for why that is a structural choice
 rather than a preference.
 """
 
+import json
+import logging
+
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import (
+    alerts,
     announce,
     conf,
     dailyboards,
     departures,
     discord_api,
+    interactions,
     leaderboards,
     play,
     podium,
@@ -287,6 +296,71 @@ class LeaderboardView(APIView):
             'round': leaderboards.board_view(leaderboards.season_rows(game, season), user_id),
             'alltime': leaderboards.board_view(leaderboards.alltime_rows(game), user_id),
         })
+
+
+class MyAlertsView(APIView):
+    """
+    The signed-in player's first-place alert setting, for the toggle on the arcade
+    page. Off until they turn it on.
+    """
+
+    authentication_classes = [ArcadeIdentity]
+    permission_classes = []
+
+    def get(self, request):
+        player = require_player(request)
+        return Response({'enabled': alerts.alerts_on(player['discord_user_id'])})
+
+    def put(self, request):
+        player = require_player(request)
+        payload = arcade_serializers.AlertSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        enabled = alerts.set_alerts(player['discord_user_id'], payload.validated_data['enabled'])
+
+        return Response({'enabled': enabled})
+
+
+# ---------------------------------------------------------------------------
+# Discord: the owner's /arcade command (arcade/interactions.py)
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DiscordInteractionsView(View):
+    """
+    The Interactions Endpoint URL in the Developer Portal. A plain Django view
+    rather than DRF, because the signature covers the exact bytes Discord sent.
+    """
+
+    def post(self, request):
+        try:
+            interactions.verify(
+                request.body,
+                request.headers.get('X-Signature-Ed25519'),
+                request.headers.get('X-Signature-Timestamp'),
+            )
+        except interactions.Unverified:
+            return HttpResponse('invalid request signature', status=401)
+
+        try:
+            interaction = json.loads(request.body)
+        except ValueError:
+            return HttpResponse('not json', status=400)
+
+        try:
+            return JsonResponse(interactions.handle(interaction))
+        except Exception:
+            logger.exception('Vice Arcade: the /arcade command failed')
+            return JsonResponse({
+                'type': interactions.CHANNEL_MESSAGE,
+                'data': {
+                    'content': 'Something went wrong on the arcade\'s side. Nothing was changed.',
+                    'flags': interactions.EPHEMERAL,
+                },
+            })
 
 
 # ---------------------------------------------------------------------------

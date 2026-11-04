@@ -24,9 +24,12 @@ from .models import (
     ArcadeGame,
     ArcadeSeason,
     ArcadeSettings,
+    BoardWipe,
+    ChannelPurge,
     DailyBoard,
     MemberDeparture,
     PersonalBest,
+    PlayerAlert,
     PlaySession,
     PodiumResult,
     RunPost,
@@ -295,4 +298,34 @@ class PlaySessionAdmin(admin.ModelAdmin):
 class ArcadeAlertOptInAdmin(admin.ModelAdmin):
     list_display = ['discord_user_id', 'enabled', 'updated_at']
     list_filter = ['enabled']
+    search_fields = ['discord_user_id']
+
+
+class ReadOnlyAdmin(admin.ModelAdmin):
+    """Written by the /arcade command and the posting tick, only read here."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BoardWipe)
+class BoardWipeAdmin(ReadOnlyAdmin):
+    list_display = ['board', 'wiped_at', 'wiped_by']
+    list_filter = ['board']
+
+
+@admin.register(ChannelPurge)
+class ChannelPurgeAdmin(ReadOnlyAdmin):
+    list_display = ['requested_at', 'requested_by', 'deleted', 'finished_at', 'last_error']
+    # The command's reply token is a short-lived credential, so it is never shown.
+    exclude = ['interaction_token']
+
+
+@admin.register(PlayerAlert)
+class PlayerAlertAdmin(ReadOnlyAdmin):
+    list_display = ['discord_user_id', 'game', 'created_at', 'handled_at', 'skipped']
+    list_filter = ['game', 'skipped']
     search_fields = ['discord_user_id']
