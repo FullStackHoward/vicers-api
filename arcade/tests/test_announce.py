@@ -158,6 +158,17 @@ class AnnounceMixin:
 # Run posts
 # ---------------------------------------------------------------------------
 
+class TodayLineTests(TestCase):
+    def test_today_s_standing_reads_as_words(self):
+        self.assertEqual(announce.today_line(1, 1), "The only player on today's board so far.")
+        self.assertEqual(announce.today_line(1, 2), "🥇 1st on today's board, ahead of 1 other player.")
+        self.assertEqual(announce.today_line(1, 4), "🥇 1st on today's board, ahead of 3 other players.")
+        self.assertEqual(announce.today_line(3, 4), "3rd on today's board, out of 4 players.")
+        self.assertEqual(announce.today_line(12, 20, best=900), "12th on today's board, out of 20 players (best today: 900).")
+        self.assertEqual([announce.ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111)],
+                         ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '101st', '111th'])
+
+
 class RunPostTests(AnnounceMixin, TestCase):
     def test_a_run_post_says_who_scored_what_and_links_straight_into_that_game(self):
         self.add_run(previous_best=None)
@@ -166,7 +177,7 @@ class RunPostTests(AnnounceMixin, TestCase):
         [post] = self.channel.posts()
         self.assertRegex(description(post), r'^## Howard scored 5,000 on Vetrix')
         self.assertIn('First run on the Vetrix boards.', description(post))
-        self.assertIn("#1 of 1 on today's board.", description(post))
+        self.assertIn("The only player on today's board so far.", description(post))
         self.assertIn('Think you can beat it?', description(post))
         self.assertEqual(button(post)['label'], 'Play Vetrix')
         self.assertEqual(button(post)['url'], 'https://arcade.vicers.net/?play=vetrix')
@@ -181,7 +192,7 @@ class RunPostTests(AnnounceMixin, TestCase):
 
         text = description(self.channel.posts()[-1])
         self.assertIn('🔥 New personal best, up from 4,000.', text)
-        self.assertIn("#2 of 2 on today's board.", text)
+        self.assertIn("2nd on today's board, out of 2 players.", text)
 
     def test_a_run_below_the_player_s_best_today_shows_the_standing_it_came_from(self):
         make_score(self.game, 'u1', 6000, self.now - timedelta(minutes=50), name='Howard')
@@ -189,7 +200,7 @@ class RunPostTests(AnnounceMixin, TestCase):
         self.post_runs()
 
         text = description(self.channel.posts()[-1])
-        self.assertIn("#1 of 1 on today's board with 6,000.", text)
+        self.assertIn("The only player on today's board so far (best today: 6,000).", text)
         self.assertNotIn('personal best', text)
 
     def test_a_player_s_next_run_edits_their_post_when_it_is_still_the_newest(self):
@@ -291,9 +302,27 @@ class CalloutTests(AnnounceMixin, TestCase):
         self.assertEqual(button(post)['url'], 'https://arcade.vicers.net/')
         self.assertEqual(button(post)['label'], 'Play Vice Arcade')
         self.assertRegex(description(post), r'^## 🕹️ The arcade is open')
-        self.assertIn('Today: Howard · 12,400', description(post))
-        self.assertRegex(description(post), r'<t:\d+:R>')
+        self.assertIn('**Today**\n🥇 Howard · 12,400', description(post))
+        self.assertIn('**This season**\n🥇 Howard · 12,400', description(post))
+        self.assertIn('midnight Eastern', description(post))
+        self.assertRegex(description(post), r'This season ends <t:\d+:F> \(<t:\d+:R>\)')
         self.assertEqual(post['payload']['embeds'][0]['thumbnail'], {'url': ICON})
+
+    def test_the_callout_shows_the_top_three_on_each_board(self):
+        for user, value, name in [('a', 400, 'Ana'), ('b', 300, 'Bo'), ('c', 200, 'Cy'), ('d', 100, 'Di')]:
+            make_score(self.game, user, value, self.now, name=name)
+        self.refresh()
+
+        text = description(self.channel.posts()[0])
+        self.assertIn('**Today**\n🥇 Ana · 400\n🥈 Bo · 300\n🥉 Cy · 200\n', text)
+        self.assertNotIn('Di ·', text, 'only the top three')
+
+    def test_an_empty_board_invites_the_first_run(self):
+        self.refresh()
+
+        text = description(self.channel.posts()[0])
+        self.assertIn('**Today**\nNobody yet. Be the first.', text)
+        self.assertIn('**This season**\nUp for grabs.', text)
 
     def test_it_is_posted_and_pinned_once_and_only_edited_when_the_standings_change(self):
         self.refresh()
