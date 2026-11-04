@@ -12,6 +12,7 @@ from arcade.models import (
     PersonalBest,
     PlaySession,
     RemovalReason,
+    RunPost,
     Score,
 )
 from arcade.tests.factories import eastern, make_game, make_score, make_season
@@ -25,6 +26,8 @@ ARCADE_ENV = {
     'VICE_GAMERS_GUILD_ID': GUILD,
     'ARCADE_SESSION_SIGNING_KEY': 'test-signing-key',
     'BOT_API_SECRET': 'test-bot-secret',
+    # Blank, so no test ever posts to a real channel whatever a local .env says.
+    'VG_ARCADE_CHANNEL_ID': '',
 }
 
 HERE = {'guild_id': GUILD, 'channel_id': ''}
@@ -208,6 +211,41 @@ class SubmitTests(ArcadeEnvMixin, TestCase):
                 now=self.now + timedelta(minutes=2),
             )
         self.assertEqual(caught.exception.reason, 'member_left')
+
+    def play(self, user, name, score):
+        session, token = self.start(user=user)
+        return play.submit_score(token, user, name, score, self.stats(seed=session.seed), now=self.now)
+
+    def queued(self):
+        return list(RunPost.objects.select_related('score').order_by('id'))
+
+    def test_every_banked_run_is_queued_for_its_channel_post(self):
+        saved = self.play('player', 'Player', 500)
+
+        [post] = self.queued()
+        self.assertEqual(post.score, saved)
+        self.assertIsNone(post.previous_best, 'a first run has nothing before it')
+        self.assertIsNone(post.handled_at)
+
+    def test_the_queued_post_knows_the_best_the_run_was_up_against(self):
+        # A higher record held by somebody else, so these runs are not held for
+        # review as all-time records.
+        self.play('holder', 'Holder', 1000)
+        self.play('player', 'Player', 300)
+        self.play('player', 'Player', 450)
+        self.play('player', 'Player', 200)
+
+        _, first, better, worse = self.queued()
+        self.assertIsNone(first.previous_best)
+        self.assertEqual(better.previous_best, 300)
+        self.assertEqual(worse.previous_best, 450)
+
+    def test_a_run_held_for_review_is_not_queued_as_played(self):
+        self.play('holder', 'Holder', 400)
+        self.play('challenger', 'Challenger', 900)
+
+        self.assertEqual([post.score.display_name for post in self.queued()], ['Holder'])
+        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.RECORD_PENDING_REVIEW).count(), 1)
 
     def test_a_score_above_the_record_is_saved_pending_review(self):
         make_score(self.game, 'holder', 400, self.now - timedelta(hours=1))

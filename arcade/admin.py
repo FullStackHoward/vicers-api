@@ -19,6 +19,7 @@ from . import rollover, seasons
 from .models import (
     ArcadeAlertOptIn,
     ArcadeAppearance,
+    ArcadeCallout,
     ArcadeEvent,
     ArcadeGame,
     ArcadeSeason,
@@ -28,6 +29,7 @@ from .models import (
     PersonalBest,
     PlaySession,
     PodiumResult,
+    RunPost,
     Score,
 )
 
@@ -126,6 +128,42 @@ class ArcadeAppearanceAdmin(admin.ModelAdmin):
     @admin.display(description='Logo preview')
     def logo_preview(self, obj):
         return image_preview(obj.logo_image)
+
+
+@admin.register(ArcadeCallout)
+class ArcadeCalloutAdmin(admin.ModelAdmin):
+    """
+    The pinned post in the arcade channel, read-only: the API keeps it. Here to
+    show `last_error`, which is where a missing permission turns up. Delete the
+    message in Discord, not here, and the next poll posts a new one.
+    """
+
+    fields = ['message_id', 'last_repost_day', 'checked_at', 'last_error', 'last_error_at']
+    readonly_fields = fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+
+        row = ArcadeCallout.load()
+        return redirect(reverse('admin:arcade_arcadecallout_change', args=[row.pk]))
+
+
+@admin.register(RunPost)
+class RunPostAdmin(admin.ModelAdmin):
+    """Each banked run's channel post, for checking what went out and why not."""
+
+    list_display = ['score', 'created_at', 'handled_at', 'skipped', 'session_runs', 'message_id']
+    list_filter = ['skipped']
+    readonly_fields = [field.name for field in RunPost._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(ArcadeGame)

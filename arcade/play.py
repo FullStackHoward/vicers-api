@@ -22,8 +22,10 @@ from .models import (
     ArcadeEvent,
     ArcadeSeason,
     EventType,
+    PersonalBest,
     PlaySession,
     RemovalReason,
+    RunPost,
     Score,
     SeasonStatus,
 )
@@ -228,6 +230,14 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
     if problems:
         raise SubmissionRefused('implausible', '; '.join(problems))
 
+    # Read before this run is saved, so the post can say whether it beat it.
+    previous_best = (
+        PersonalBest.objects
+        .filter(discord_user_id=str(discord_user_id), game=session.game)
+        .values_list('best_score', flat=True)
+        .first()
+    )
+
     record_to_beat = leaderboards.alltime_best(session.game)
     beats_record = record_to_beat is None or score > record_to_beat.score
     # The first score onto an empty board is not a displacement, so it is not
@@ -269,6 +279,12 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
 
     season = rollover.ensure_current_season(now)
     podium.refresh(season)
+
+    # Queued for the "just played" post in the arcade channel (arcade/announce.py).
+    # Not for a run held for review: its score is not public yet, and the record
+    # post follows approval instead.
+    if not is_pending_record:
+        RunPost.objects.create(score=saved, previous_best=previous_best)
 
     return saved
 
