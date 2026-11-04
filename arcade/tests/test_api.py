@@ -1,14 +1,17 @@
 import os
+import shutil
+import tempfile
 from datetime import timedelta
 from unittest import mock
 
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from arcade import discord_api, play
-from arcade.models import ArcadeEvent, DailyBoard, EventType, PlaySession, Score, SeasonStatus
+from arcade.models import ArcadeAppearance, ArcadeEvent, DailyBoard, EventType, PlaySession, Score, SeasonStatus
 from arcade.tests.factories import eastern, make_game, make_score, make_season
-from arcade.tests.test_play import ARCADE_ENV, CHANNEL, GUILD, HERE
+from arcade.tests.test_play import ARCADE_ENV, GUILD
 
 BOT_SECRET = ARCADE_ENV['BOT_API_SECRET']
 
@@ -61,129 +64,129 @@ class BotAuthTests(ApiMixin, TestCase):
         self.assertEqual(response.status_code, 403)
 
 
+REDIRECT = 'https://arcade.vicers.net/'
+MEMBER = {'user': {'id': 'player'}, 'pending': False}
+NOT_A_MEMBER = discord_api.DiscordError('Unknown Member', status=404, code=discord_api.UNKNOWN_MEMBER)
+
+
 class TokenExchangeTests(ApiMixin, TestCase):
-    def test_a_launch_returns_an_identity_the_player_can_reuse(self):
-        with mock.patch.object(discord_api, 'exchange_code', return_value={'access_token': 'at'}), \
+    def sign_in(self, body=None, member=MEMBER, user=None, **exchange):
+        exchange = exchange or {'return_value': {'access_token': 'at'}}
+        lookup = {'side_effect': member} if isinstance(member, Exception) else {'return_value': member}
+
+        with mock.patch.object(discord_api, 'exchange_code', **exchange) as exchanged, \
              mock.patch.object(discord_api, 'current_user',
-                               return_value={'id': '555', 'global_name': 'Howard'}):
-            response = self.client.post('/api/arcade/token', {'code': 'abc'}, content_type='application/json')
+                               return_value=user or {'id': '555', 'global_name': 'Howard', 'avatar': 'abc'}), \
+             mock.patch.object(discord_api, 'guild_member', **lookup):
+            response = self.client.post(
+                '/api/arcade/token',
+                body if body is not None else {'code': 'abc', 'redirect_uri': REDIRECT},
+                content_type='application/json',
+            )
+        return response, exchanged
+
+    def test_a_member_gets_an_identity_they_can_reuse(self):
+        response, exchanged = self.sign_in()
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body['player'], {'discord_user_id': '555', 'display_name': 'Howard'})
+        self.assertEqual(body['player']['discord_user_id'], '555')
+        self.assertEqual(body['player']['display_name'], 'Howard')
+        self.assertEqual(body['player']['avatar_url'], 'https://cdn.discordapp.com/avatars/555/abc.png?size=64')
         self.assertEqual(play.read_identity(body['identity']), ('555', 'Howard'))
+        exchanged.assert_called_once_with('abc', REDIRECT)
 
-    def test_discord_being_down_is_a_503_not_a_rejection(self):
-        with mock.patch.object(discord_api, 'exchange_code',
-                               side_effect=discord_api.DiscordUnavailable('timeout')):
-            response = self.client.post('/api/arcade/token', {'code': 'abc'}, content_type='application/json')
+    def test_discords_access_token_never_reaches_the_browser(self):
+        response, _ = self.sign_in()
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()['error'], 'discord_unavailable')
+        self.assertNotIn('access_token', response.json())
+        self.assertNotIn('"at"', response.content.decode())
 
-    def test_a_bad_code_is_a_400(self):
-        with mock.patch.object(discord_api, 'exchange_code',
-                               side_effect=discord_api.DiscordError('invalid_grant', status=400)):
-            response = self.client.post('/api/arcade/token', {'code': 'nope'}, content_type='application/json')
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_a_missing_code_is_rejected_before_discord_is_called(self):
-        with mock.patch.object(discord_api, 'exchange_code') as called:
-            response = self.client.post('/api/arcade/token', {}, content_type='application/json')
-
-        self.assertEqual(response.status_code, 400)
-        called.assert_not_called()
-
-
-class GateEndpointTests(ApiMixin, TestCase):
-    def post_session(self, instance, user='player'):
-        with mock.patch.object(discord_api, 'activity_instance', return_value=instance):
-            return self.client.post(
-                '/api/arcade/sessions',
-                {'game': self.game.slug, 'instance_id': 'inst-1'},
-                content_type='application/json',
-                **self.identity(user),
-            )
-
-    def test_playing_in_the_arcade_channel_gets_a_session(self):
-        response = self.post_session({'location': HERE, 'users': [{'id': 'player'}]})
-
-        self.assertEqual(response.status_code, 201)
-        body = response.json()
-        self.assertIn('session_token', body)
-        self.assertTrue(0 <= body['seed'] < 2 ** 32)
-        self.assertEqual(PlaySession.objects.count(), 1)
-
-    def test_another_server_gets_the_apply_message(self):
-        response = self.post_session(
-            {'location': {'guild_id': '999', 'channel_id': CHANNEL}, 'users': [{'id': 'player'}]}
-        )
+    def test_someone_outside_vice_gamers_is_turned_away_at_sign_in(self):
+        response, _ = self.sign_in(member=NOT_A_MEMBER)
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['error'], 'wrong_guild')
         self.assertIn('discord.vicers.net', response.json()['detail'])
 
-    def test_another_channel_gets_pointed_at_the_arcade_channel(self):
-        response = self.post_session(
-            {'location': {'guild_id': GUILD, 'channel_id': '123'}, 'users': [{'id': 'player'}]}
-        )
+    def test_a_redirect_that_is_not_the_arcade_is_refused_before_discord_is_called(self):
+        response, exchanged = self.sign_in({'code': 'abc', 'redirect_uri': 'https://evil.example/'})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'bad_redirect')
+        exchanged.assert_not_called()
+
+    def test_discord_being_down_is_a_503_not_a_rejection(self):
+        response, _ = self.sign_in(side_effect=discord_api.DiscordUnavailable('timeout'))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['error'], 'discord_unavailable')
+
+    def test_a_bad_code_is_a_400(self):
+        response, _ = self.sign_in(side_effect=discord_api.DiscordError('invalid_grant', status=400))
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_missing_code_is_rejected_before_discord_is_called(self):
+        response, exchanged = self.sign_in({'redirect_uri': REDIRECT})
+
+        self.assertEqual(response.status_code, 400)
+        exchanged.assert_not_called()
+
+
+class GateEndpointTests(ApiMixin, TestCase):
+    def post_session(self, member=MEMBER, game=None, headers=None):
+        lookup = {'side_effect': member} if isinstance(member, Exception) else {'return_value': member}
+
+        with mock.patch.object(discord_api, 'guild_member', **lookup):
+            return self.client.post(
+                '/api/arcade/sessions',
+                {'game': game or self.game.slug},
+                content_type='application/json',
+                **(self.identity() if headers is None else headers),
+            )
+
+    def test_a_member_gets_a_session(self):
+        response = self.post_session()
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertIn('session_token', body)
+        self.assertTrue(0 <= body['seed'] < 2 ** 32)
+        self.assertEqual(PlaySession.objects.get().guild_id, GUILD)
+
+    def test_someone_who_has_left_since_signing_in_gets_the_apply_message(self):
+        response = self.post_session(member=NOT_A_MEMBER)
 
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()['error'], 'wrong_channel')
-        self.assertIn('#vice-arcade', response.json()['detail'])
+        self.assertEqual(response.json()['error'], 'wrong_guild')
+        self.assertEqual(PlaySession.objects.count(), 0)
+
+    def test_a_member_still_on_the_rules_screen_is_told_to_finish_joining(self):
+        response = self.post_session(member={'user': {'id': 'player'}, 'pending': True})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error'], 'member_pending')
 
     def test_no_identity_means_no_session(self):
-        response = self.client.post(
-            '/api/arcade/sessions',
-            {'game': self.game.slug, 'instance_id': 'inst-1'},
-            content_type='application/json',
-        )
+        response = self.post_session(headers={})
         self.assertEqual(response.status_code, 401)
 
     def test_an_expired_identity_is_refused(self):
         token = play.sign_identity('player', 'Player')
         with mock.patch.object(play, 'IDENTITY_TTL_SECONDS', -1):
-            response = self.client.post(
-                '/api/arcade/sessions',
-                {'game': self.game.slug, 'instance_id': 'inst-1'},
-                content_type='application/json',
-                HTTP_X_ARCADE_IDENTITY=token,
-            )
+            response = self.post_session(headers={'HTTP_X_ARCADE_IDENTITY': token})
         self.assertEqual(response.status_code, 401)
 
     def test_the_gate_fails_closed_when_discord_cannot_be_reached(self):
-        with mock.patch.object(discord_api, 'activity_instance',
-                               side_effect=discord_api.DiscordUnavailable('timeout')):
-            response = self.client.post(
-                '/api/arcade/sessions',
-                {'game': self.game.slug, 'instance_id': 'inst-1'},
-                content_type='application/json',
-                **self.identity(),
-            )
+        response = self.post_session(member=discord_api.DiscordUnavailable('timeout'))
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(PlaySession.objects.count(), 0)
 
-    def test_a_launch_with_no_instance_id_is_refused(self):
-        response = self.client.post(
-            '/api/arcade/sessions',
-            {'game': self.game.slug},
-            content_type='application/json',
-            **self.identity(),
-        )
-        self.assertEqual(response.status_code, 403)
-
     def test_a_locked_cabinet_cannot_be_started(self):
         locked = make_game(slug='locked', display_name='Locked', is_active=False)
-        with mock.patch.object(discord_api, 'activity_instance',
-                               return_value={'location': HERE, 'users': [{'id': 'player'}]}):
-            response = self.client.post(
-                '/api/arcade/sessions',
-                {'game': locked.slug, 'instance_id': 'inst-1'},
-                content_type='application/json',
-                **self.identity(),
-            )
+        response = self.post_session(game=locked.slug)
         self.assertEqual(response.status_code, 404)
 
 
@@ -193,11 +196,11 @@ class SubmitEndpointTests(ApiMixin, TestCase):
         self.season = make_season(timezone.now() - timedelta(hours=2))
 
     def start(self, user='player'):
-        with mock.patch.object(discord_api, 'activity_instance',
-                               return_value={'location': HERE, 'users': [{'id': user}]}):
+        with mock.patch.object(discord_api, 'guild_member',
+                               return_value={'user': {'id': user}, 'pending': False}):
             response = self.client.post(
                 '/api/arcade/sessions',
-                {'game': self.game.slug, 'instance_id': 'inst-1'},
+                {'game': self.game.slug},
                 content_type='application/json',
                 **self.identity(user),
             )
@@ -511,3 +514,68 @@ class DailyBoardEndpointTests(ApiMixin, TestCase):
 
         self.assertEqual(resolve('/api/arcade/daily/5/posted').url_name, 'arcade-daily-posted')
         self.assertEqual(resolve('/api/arcade/daily/vetrix/2026-11-10').url_name, 'arcade-daily')
+
+
+# One pixel of PNG, enough for Pillow to accept the upload as an image.
+PIXEL_PNG = (
+    b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06'
+    b'\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00'
+    b'\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+)
+
+
+class AppearanceEndpointTests(ApiMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        override = override_settings(MEDIA_ROOT=media)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def test_with_nothing_uploaded_every_image_is_null_and_the_page_keeps_its_own_look(self):
+        response = self.client.get('/api/arcade/appearance')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIsNone(body['background_url'])
+        self.assertIsNone(body['logo_url'])
+        self.assertEqual(body['tagline'], ArcadeAppearance.DEFAULT_TAGLINE)
+        self.assertEqual(body['games'][self.game.slug]['thumbnail_url'], None)
+
+    def test_uploaded_images_come_back_as_absolute_urls(self):
+        look = ArcadeAppearance.load()
+        look.background_image = SimpleUploadedFile('night.png', PIXEL_PNG, content_type='image/png')
+        look.save()
+        self.game.thumbnail = SimpleUploadedFile('vetrix.png', PIXEL_PNG, content_type='image/png')
+        self.game.save()
+
+        body = self.client.get('/api/arcade/appearance').json()
+
+        self.assertTrue(body['background_url'].startswith('http://testserver/media/arcade/appearance/night'))
+        self.assertTrue(body['games'][self.game.slug]['thumbnail_url'].startswith(
+            'http://testserver/media/arcade/thumbnails/vetrix'))
+
+    def test_it_needs_no_sign_in(self):
+        self.assertEqual(self.client.get('/api/arcade/appearance').status_code, 200)
+
+    def test_an_inactive_game_is_left_out(self):
+        make_game(slug='hidden', display_name='Hidden', is_active=False)
+
+        self.assertNotIn('hidden', self.client.get('/api/arcade/appearance').json()['games'])
+
+    def test_the_appearance_row_is_a_singleton(self):
+        ArcadeAppearance(tagline='One').save()
+        ArcadeAppearance(tagline='Two').save()
+
+        self.assertEqual(ArcadeAppearance.objects.count(), 1)
+        self.assertEqual(ArcadeAppearance.load().tagline, 'Two')
+
+    def test_an_oversized_image_is_refused_with_a_reason(self):
+        from django.core.exceptions import ValidationError
+        from arcade.models import MAX_IMAGE_BYTES, limit_image_size
+
+        big = SimpleUploadedFile('huge.png', b'0' * (MAX_IMAGE_BYTES + 1), content_type='image/png')
+
+        with self.assertRaises(ValidationError):
+            limit_image_size(big)

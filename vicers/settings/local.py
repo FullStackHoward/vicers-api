@@ -21,17 +21,7 @@ DATABASES = {
     }
 }
 
-# Vice Arcade is served to the browser from Discord's proxy, not from our own
-# domain, so its origin has to be allowed here. Built from the application id
-# rather than written out, so the two can never drift apart. Left out entirely
-# when the id is unset, which is how the bot and website deployments stay
-# unaffected.
-#
-# [Unverified] whether requests through Discord's proxy carry an Origin header at
-# all. Allowing it costs nothing either way and is checked against a real request
-# in Phase 1a.
-VICE_ARCADE_CLIENT_ID = config('VICE_ARCADE_CLIENT_ID', default='')
-if VICE_ARCADE_CLIENT_ID:
-    CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS + [
-        f'https://{VICE_ARCADE_CLIENT_ID}.discordsays.com',
-    ]
+# The arcade's Vite dev server, for running the page against a local API.
+CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS + [
+    'http://localhost:5173',
+]

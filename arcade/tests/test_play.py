@@ -5,7 +5,7 @@ from unittest import mock
 from django.test import TestCase
 from django.utils import timezone
 
-from arcade import departures, leaderboards, play
+from arcade import departures, discord_api, leaderboards, play
 from arcade.models import (
     ArcadeEvent,
     EventType,
@@ -17,19 +17,17 @@ from arcade.models import (
 from arcade.tests.factories import eastern, make_game, make_score, make_season
 
 GUILD = '427913782895837195'
-CHANNEL = '1566848574707204126'
 
 ARCADE_ENV = {
     'VICE_ARCADE_CLIENT_ID': '1567002859785031690',
     'VICE_ARCADE_CLIENT_SECRET': 'not-a-real-secret',
     'VICE_ARCADE_BOT_TOKEN': 'not-a-real-token',
     'VICE_GAMERS_GUILD_ID': GUILD,
-    'VG_ARCADE_CHANNEL_ID': CHANNEL,
     'ARCADE_SESSION_SIGNING_KEY': 'test-signing-key',
     'BOT_API_SECRET': 'test-bot-secret',
 }
 
-HERE = {'guild_id': GUILD, 'channel_id': CHANNEL}
+HERE = {'guild_id': GUILD, 'channel_id': ''}
 
 
 class ArcadeEnvMixin:
@@ -40,35 +38,39 @@ class ArcadeEnvMixin:
         self.addCleanup(patcher.stop)
 
 
-class GateTests(ArcadeEnvMixin, TestCase):
-    def test_the_right_guild_and_channel_pass(self):
-        location = play.check_location({'location': HERE})
-        self.assertEqual(location['channel_id'], CHANNEL)
+class MembershipGateTests(ArcadeEnvMixin, TestCase):
+    def confirm(self, **lookup):
+        with mock.patch.object(discord_api, 'guild_member', **lookup) as called:
+            location = play.confirm_member('player')
+        return location, called
 
-    def test_another_server_is_refused(self):
+    def test_a_member_passes_and_is_stamped_with_vice_gamers(self):
+        location, called = self.confirm(return_value={'user': {'id': 'player'}, 'pending': False})
+
+        self.assertEqual(location, HERE)
+        called.assert_called_once_with(GUILD, 'player')
+
+    def test_someone_who_is_not_in_vice_gamers_is_refused(self):
         with self.assertRaises(play.GateRefused) as caught:
-            play.check_location({'location': {'guild_id': '999', 'channel_id': CHANNEL}})
+            self.confirm(side_effect=discord_api.DiscordError(
+                'Unknown Member', status=404, code=discord_api.UNKNOWN_MEMBER,
+            ))
         self.assertEqual(caught.exception.reason, 'wrong_guild')
 
-    def test_another_channel_in_the_right_server_is_refused(self):
+    def test_a_member_still_on_the_rules_screen_is_refused(self):
         with self.assertRaises(play.GateRefused) as caught:
-            play.check_location({'location': {'guild_id': GUILD, 'channel_id': '123'}})
-        self.assertEqual(caught.exception.reason, 'wrong_channel')
+            self.confirm(return_value={'user': {'id': 'player'}, 'pending': True})
+        self.assertEqual(caught.exception.reason, 'member_pending')
 
-    def test_an_instance_with_no_location_is_refused_rather_than_trusted(self):
-        with self.assertRaises(play.GateRefused):
-            play.check_location({})
+    def test_discord_being_down_is_not_read_as_a_refusal(self):
+        # The caller fails closed on this; the gate must not turn it into "not a
+        # member", which would tell a member to go and apply.
+        with self.assertRaises(discord_api.DiscordUnavailable):
+            self.confirm(side_effect=discord_api.DiscordUnavailable('timeout'))
 
-    def test_a_player_not_in_the_instance_is_refused(self):
-        with self.assertRaises(play.GateRefused) as caught:
-            play.check_membership_of_instance({'users': [{'id': 'someone'}]}, 'gatecrasher')
-        self.assertEqual(caught.exception.reason, 'not_in_instance')
-
-    def test_a_player_in_the_instance_passes(self):
-        play.check_membership_of_instance({'users': [{'id': 'player'}]}, 'player')
-
-    def test_a_bare_list_of_ids_is_accepted_too(self):
-        play.check_membership_of_instance({'users': ['player']}, 'player')
+    def test_any_other_discord_error_is_not_read_as_a_refusal_either(self):
+        with self.assertRaises(discord_api.DiscordError):
+            self.confirm(side_effect=discord_api.DiscordError('Unauthorized', status=401, code=0))
 
 
 class SessionTests(ArcadeEnvMixin, TestCase):

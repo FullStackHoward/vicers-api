@@ -18,6 +18,7 @@ from django.utils.html import format_html
 from . import rollover, seasons
 from .models import (
     ArcadeAlertOptIn,
+    ArcadeAppearance,
     ArcadeEvent,
     ArcadeGame,
     ArcadeSeason,
@@ -78,11 +79,69 @@ class ArcadeSettingsAdmin(admin.ModelAdmin):
         )
 
 
+def image_preview(image, height=120):
+    """A small preview beside an upload field, so a wrong image is caught here."""
+    if not image:
+        return 'Nothing uploaded yet.'
+    return format_html(
+        '<img src="{}" style="max-height:{}px;max-width:100%;image-rendering:pixelated;'
+        'border:1px solid #ccc;background:#111">',
+        image.url,
+        height,
+    )
+
+
+@admin.register(ArcadeAppearance)
+class ArcadeAppearanceAdmin(admin.ModelAdmin):
+    """
+    The arcade page's images and wording. A singleton, handled like
+    ArcadeSettings: no add once it exists, no delete, and the list goes straight
+    to the one row. Changes show on the page at the next load, with no deploy.
+    """
+
+    fields = [
+        'background_image', 'background_preview',
+        'logo_image', 'logo_preview',
+        'tagline',
+        'updated_at',
+    ]
+    readonly_fields = ['background_preview', 'logo_preview', 'updated_at']
+
+    def has_add_permission(self, request):
+        return not ArcadeAppearance.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+
+        row = ArcadeAppearance.load()
+        return redirect(reverse('admin:arcade_arcadeappearance_change', args=[row.pk]))
+
+    @admin.display(description='Background preview')
+    def background_preview(self, obj):
+        return image_preview(obj.background_image, height=180)
+
+    @admin.display(description='Logo preview')
+    def logo_preview(self, obj):
+        return image_preview(obj.logo_image)
+
+
 @admin.register(ArcadeGame)
 class ArcadeGameAdmin(admin.ModelAdmin):
-    list_display = ['display_name', 'slug', 'is_active', 'active_from']
+    list_display = ['display_name', 'slug', 'is_active', 'active_from', 'has_thumbnail']
     list_filter = ['is_active']
     search_fields = ['slug', 'display_name']
+    readonly_fields = ['thumbnail_preview']
+
+    @admin.display(description='Thumbnail', boolean=True)
+    def has_thumbnail(self, obj):
+        return bool(obj.thumbnail)
+
+    @admin.display(description='Thumbnail preview')
+    def thumbnail_preview(self, obj):
+        return image_preview(obj.thumbnail)
 
 
 @admin.register(ArcadeSeason)

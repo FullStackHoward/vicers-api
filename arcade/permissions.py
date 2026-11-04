@@ -8,7 +8,7 @@ already used by `community.views.CreateAnnouncementView`. That check is written
 once here as a permission class rather than repeated inline across the dozen
 bot-only arcade endpoints.
 
-The Activity authenticates with the signed identity it was given at launch. That
+The arcade page authenticates with the signed identity it was given at sign-in. That
 identity originates from Discord, never from a claim the browser made about
 itself.
 """
@@ -46,8 +46,8 @@ class ArcadeIdentity(authentication.BaseAuthentication):
     header = 'X-Arcade-Identity'
 
     def authenticate_header(self, request):
-        # Without this DRF turns every 401 into a 403, which tells the Activity
-        # nothing about whether to re-launch and sign in again.
+        # Without this DRF turns every 401 into a 403, which tells the page
+        # nothing about whether to send the player to sign in again.
         return self.header
 
     def authenticate(self, request):
@@ -69,6 +69,6 @@ def require_player(request):
     player = getattr(request, 'arcade_player', None)
     if not player:
         raise exceptions.NotAuthenticated(
-            'Launch Vice Arcade from Discord to play.'
+            'Sign in with Discord to play.'
         )
     return player

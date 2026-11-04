@@ -2,11 +2,8 @@
 Arcade routes.
 
 Mounted under `api/arcade/` to match the existing `api/gaming/` and
-`api/creators/` apps. Discord's URL Mapping sends `/api` to this host, and
-whether its proxy preserves or consumes that prefix decides the path the
-Activity actually calls. That is tested against a real request in Phase 1a
-rather than guessed at; if the prefix is consumed, the mount in vicers/urls.py
-is the single line that changes.
+`api/creators/` apps. The arcade page at arcade.vicers.net calls these
+directly, which is why that origin is in CORS_ALLOWED_ORIGINS.
 """
 
 from django.urls import path
@@ -14,8 +11,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    # The Activity
+    # The arcade page
     path('token', views.TokenExchangeView.as_view(), name='arcade-token'),
+    path('appearance', views.AppearanceView.as_view(), name='arcade-appearance'),
     path('sessions', views.SessionView.as_view(), name='arcade-sessions'),
     path('scores', views.ScoreSubmitView.as_view(), name='arcade-scores'),
     path('leaderboards/<slug:game_slug>', views.LeaderboardView.as_view(), name='arcade-leaderboards'),

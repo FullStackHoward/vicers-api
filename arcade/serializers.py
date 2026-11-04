@@ -5,11 +5,11 @@ from rest_framework import serializers
 
 class TokenExchangeSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=512)
+    redirect_uri = serializers.URLField(max_length=200)
 
 
 class SessionRequestSerializer(serializers.Serializer):
     game = serializers.SlugField(max_length=40)
-    instance_id = serializers.CharField(max_length=128, allow_blank=True, required=False)
 
 
 class ScoreSubmitSerializer(serializers.Serializer):
