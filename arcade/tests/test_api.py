@@ -587,3 +587,27 @@ class CorsTests(ApiMixin, TestCase):
         allowed = response.headers.get('access-control-allow-headers', '')
         self.assertIn('x-arcade-identity', allowed)
         self.assertIn('content-type', allowed)
+
+
+class ScoreAdminTests(ApiMixin, TestCase):
+    def test_the_admin_action_takes_a_score_off_every_board(self):
+        from django.contrib.admin.sites import site
+        from django.contrib.auth import get_user_model
+        from django.test import RequestFactory
+
+        now = timezone.now()
+        make_season(now - timedelta(hours=2))
+        keep = make_score(self.game, 'keeper', 100, now - timedelta(hours=1))
+        drop = make_score(self.game, 'cheat', 900, now - timedelta(hours=1))
+
+        admin_obj = site._registry[Score]
+        request = RequestFactory().post('/')
+        request.user = get_user_model()(is_staff=True, is_superuser=True)
+        with mock.patch.object(admin_obj, 'message_user'):
+            admin_obj.take_off_every_board(request, Score.objects.filter(pk=drop.pk))
+
+        drop.refresh_from_db()
+        self.assertTrue(drop.removed)
+        self.assertEqual(drop.removal_reason, 'owner_removed')
+        body = self.client.get(f'/api/arcade/leaderboards/{self.game.slug}').json()
+        self.assertEqual(body['alltime']['leader']['discord_user_id'], keep.discord_user_id)

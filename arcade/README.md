@@ -154,7 +154,10 @@ and nothing more. Replaying a suspicious run server side from its seed and input
 log would be the next step up and is out of scope for v1. There is no review
 step: a run that passes the limits is on the boards, counts for the podium, and
 is posted as a record if it is one, the moment it is banked. The owner can still
-take a score off every board afterwards (`scores/<id>/remove`).
+take a score off every board afterwards: in Django admin, select it under
+**Scores** and run **Take the selected scores off every board**. That rebuilds
+personal bests, the podium and any finished round it was in, which is why the
+`removed` box itself is read-only.
 
 `max_score_per_piece` is intentionally unset on the seeded Vetrix row. It is the
 most useful of the checks and needs real numbers from a playtest; a guess that is
