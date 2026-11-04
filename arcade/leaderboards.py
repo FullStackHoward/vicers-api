@@ -12,7 +12,7 @@ player per board means picking each player's best score in the window, and the
 candidate set for a Discord community is small enough that the clearer code wins.
 """
 
-from .models import DailyBoard, PersonalBest, Score
+from .models import BoardWipe, DailyBoard, PersonalBest, Score, WipedBoard
 
 TOP_N = 10
 
@@ -73,15 +73,50 @@ def alltime_rows(game):
     return _rank(visible_scores(game))
 
 
-def daily_rows(game, day):
+def board_start(board, start, end):
+    """
+    Where a Daily or season board's window really starts: its own start, or the
+    owner's latest wipe of that board inside the window (arcade/wipes.py). A wipe
+    deletes nothing, so this is the only place it takes effect.
+    """
+    wiped_at = (
+        BoardWipe.objects
+        .filter(board=board, wiped_at__gt=start, wiped_at__lt=end)
+        .order_by('-wiped_at')
+        .values_list('wiped_at', flat=True)
+        .first()
+    )
+    return max(start, wiped_at) if wiped_at else start
+
+
+def daily_window(day):
     from . import seasons
 
     start, end = seasons.eastern_day_bounds(day)
-    return window_rows(game, start, end)
+    return board_start(WipedBoard.DAILY, start, end), end
+
+
+def season_window(season):
+    return board_start(WipedBoard.SEASON, season.starts_at, season.ends_at), season.ends_at
+
+
+def daily_rows(game, day):
+    return window_rows(game, *daily_window(day))
 
 
 def season_rows(game, season):
-    return window_rows(game, season.starts_at, season.ends_at)
+    return window_rows(game, *season_window(season))
+
+
+def season_best(game, season):
+    """The score at the top of this season's board, for the first-place alert."""
+    start, end = season_window(season)
+    return (
+        visible_scores(game)
+        .filter(created_at__gte=start, created_at__lt=end)
+        .order_by('-score', 'created_at', 'id')
+        .first()
+    )
 
 
 def board_view(rows, discord_user_id=None):

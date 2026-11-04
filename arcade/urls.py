@@ -17,6 +17,10 @@ urlpatterns = [
     path('sessions', views.SessionView.as_view(), name='arcade-sessions'),
     path('scores', views.ScoreSubmitView.as_view(), name='arcade-scores'),
     path('leaderboards/<slug:game_slug>', views.LeaderboardView.as_view(), name='arcade-leaderboards'),
+    path('me/alerts', views.MyAlertsView.as_view(), name='arcade-my-alerts'),
+
+    # Discord: the owner's /arcade command
+    path('discord/interactions', views.DiscordInteractionsView.as_view(), name='arcade-discord-interactions'),
 
     # The bot
     path('events/pending', views.PendingEventsView.as_view(), name='arcade-events-pending'),

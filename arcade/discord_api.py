@@ -213,3 +213,105 @@ def guild_emojis(guild_id):
         headers=_bot(),
         timeout=POST_TIMEOUT_SECONDS,
     )
+
+
+# ---------------------------------------------------------------------------
+# /arcade reset: emptying the arcade channel (arcade/announce.py)
+# ---------------------------------------------------------------------------
+
+# Discord refuses a bulk delete that includes anything older than this.
+BULK_DELETE_MAX_AGE_DAYS = 14
+
+# Discord's code when a bulk delete includes a message that is too old.
+MESSAGE_TOO_OLD = 50034
+
+
+def list_messages(channel_id, before, limit=100):
+    """Up to `limit` messages older than `before`, newest first. Needs Read Message History."""
+    query = urllib.parse.urlencode({'before': str(before), 'limit': int(limit)})
+    return _request('GET', f'{_channel(channel_id)}/messages?{query}', headers=_bot(), timeout=POST_TIMEOUT_SECONDS)
+
+
+def bulk_delete(channel_id, message_ids):
+    """Two to a hundred messages under two weeks old in one call. Needs Manage Messages."""
+    return _request(
+        'POST',
+        f'{_channel(channel_id)}/messages/bulk-delete',
+        headers=_bot(),
+        body={'messages': [str(message_id) for message_id in message_ids]},
+        timeout=POST_TIMEOUT_SECONDS,
+    )
+
+
+# ---------------------------------------------------------------------------
+# First-place alerts by DM (arcade/alerts.py)
+# ---------------------------------------------------------------------------
+
+# Discord's code for a member whose DMs are closed to the bot.
+CANNOT_DM = 50007
+
+
+def open_dm(discord_user_id):
+    """The DM channel with this player, made if need be."""
+    return _request(
+        'POST',
+        '/users/@me/channels',
+        headers=_bot(),
+        body={'recipient_id': str(discord_user_id)},
+        timeout=POST_TIMEOUT_SECONDS,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The /arcade commands (arcade/interactions.py)
+# ---------------------------------------------------------------------------
+
+# A slash command has three seconds to be answered, and the owner check happens
+# inside that, so it gets less than the posting calls.
+INTERACTION_TIMEOUT_SECONDS = 2
+
+
+def get_guild(guild_id):
+    return _request(
+        'GET',
+        f'/guilds/{urllib.parse.quote(str(guild_id))}',
+        headers=_bot(),
+        timeout=INTERACTION_TIMEOUT_SECONDS,
+    )
+
+
+def edit_interaction_reply(application_id, token, payload):
+    """
+    Change a command's reply after the fact. The interaction token is the
+    credential here, not the bot token, and Discord honours it for fifteen minutes.
+    """
+    return _request(
+        'PATCH',
+        f'/webhooks/{urllib.parse.quote(str(application_id))}/{urllib.parse.quote(str(token))}/messages/@original',
+        body=payload,
+        timeout=POST_TIMEOUT_SECONDS,
+    )
+
+
+def _commands(application_id, guild_id=None):
+    path = f'/applications/{urllib.parse.quote(str(application_id))}'
+    if guild_id:
+        path += f'/guilds/{urllib.parse.quote(str(guild_id))}'
+    return f'{path}/commands'
+
+
+def list_commands(application_id, guild_id=None):
+    return _request('GET', _commands(application_id, guild_id), headers=_bot())
+
+
+def replace_guild_commands(application_id, guild_id, commands):
+    """Make the app's commands in this server exactly `commands`."""
+    return _request('PUT', _commands(application_id, guild_id), headers=_bot(), body=commands)
+
+
+def delete_command(application_id, command_id, guild_id=None):
+    return _request(
+        'DELETE',
+        f'{_commands(application_id, guild_id)}/{urllib.parse.quote(str(command_id))}',
+        headers=_bot(),
+    )
