@@ -12,7 +12,7 @@ needed, so `manage.py check`, migrations and the tests all run without a full
 production environment.
 """
 
-from decouple import UndefinedValueError, config
+from decouple import Csv, UndefinedValueError, config
 
 DISCORD_API = 'https://discord.com/api/v10'
 
@@ -23,6 +23,11 @@ REQUEST_TIMEOUT_SECONDS = 10
 
 # How long a play session stays valid. Decided: two hours.
 SESSION_TTL_HOURS = 2
+
+# Where Discord may send a player back to after sign-in. Each one also has to be
+# listed under OAuth2 > Redirects in the Developer Portal; Discord enforces that
+# side, and this list stops the API exchanging a code for any page but the arcade.
+DEFAULT_REDIRECT_URIS = 'https://arcade.vicers.net/,http://localhost:5173/'
 
 
 def _required(name):
@@ -54,13 +59,13 @@ def guild_id():
     return _required('VICE_GAMERS_GUILD_ID')
 
 
-def arcade_channel_id():
-    return _required('VG_ARCADE_CHANNEL_ID')
-
-
 def session_signing_key():
     return _required('ARCADE_SESSION_SIGNING_KEY')
 
 
 def bot_api_secret():
     return _required('BOT_API_SECRET')
+
+
+def redirect_uris():
+    return config('ARCADE_REDIRECT_URIS', default=DEFAULT_REDIRECT_URIS, cast=Csv())

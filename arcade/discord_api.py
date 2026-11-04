@@ -1,9 +1,9 @@
 """
-The three calls this API makes to Discord.
+The calls this API makes to Discord.
 
 Stdlib urllib, not requests: nothing in requirements.txt provides a synchronous
-HTTP client, and adding one would mean a pip install on the server for three
-calls.
+HTTP client, and adding one would mean a pip install on the server for a
+handful of calls.
 
 The distinction that matters here is between "Discord said no" and "Discord did
 not answer". A gate check that cannot reach Discord must fail closed, while a
@@ -79,11 +79,13 @@ def _request(method, path, headers=None, body=None, form=False):
         raise DiscordError('Discord returned a body that is not JSON')
 
 
-def exchange_code(code):
+def exchange_code(code, redirect_uri):
     """
-    Swap the Activity's OAuth code for an access token.
+    Swap the sign-in page's OAuth code for an access token.
 
-    The client secret is used here and nowhere else, and never leaves the server.
+    `redirect_uri` has to be the exact one the browser was sent back to, or
+    Discord refuses the exchange. The client secret is used here and nowhere
+    else, and never leaves the server.
     """
     payload = _request(
         'POST',
@@ -93,6 +95,7 @@ def exchange_code(code):
             'client_secret': conf.client_secret(),
             'grant_type': 'authorization_code',
             'code': code,
+            'redirect_uri': redirect_uri,
         },
         form=True,
     )
@@ -118,16 +121,16 @@ def current_user(access_token):
     )
 
 
-def activity_instance(instance_id):
+def guild_member(guild_id, discord_user_id):
     """
-    Where a running Activity instance is: which guild, which channel, and who is
-    in it.
+    The player's membership of a server, or DiscordError with UNKNOWN_MEMBER.
 
-    Discord's docs require the application's bot token for this route, which is
-    why the Vice Arcade app has a bot at all even though it never runs as one.
+    Asked with the Vice Arcade bot's token rather than the player's, so sign-in
+    needs only the `identify` scope. Looking one member up over REST needs no
+    gateway intent, only that the bot is in the server.
     """
     return _request(
         'GET',
-        f'/applications/{conf.client_id()}/activity-instances/{urllib.parse.quote(instance_id)}',
+        f'/guilds/{urllib.parse.quote(str(guild_id))}/members/{urllib.parse.quote(str(discord_user_id))}',
         headers={'Authorization': f'Bot {conf.bot_token()}'},
     )

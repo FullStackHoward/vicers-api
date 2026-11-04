@@ -1,7 +1,12 @@
 # Vice Arcade API
 
-Leaderboards, rounds and the event outbox behind the Vice Arcade Discord
-Activity. Mounted at `api/arcade/`, alongside `api/gaming/` and `api/creators/`.
+Leaderboards, rounds, page appearance and the event outbox behind Vice Arcade,
+the web page at arcade.vicers.net. Mounted at `api/arcade/`, alongside
+`api/gaming/` and `api/creators/`.
+
+Players sign in with Discord (OAuth2, `identify` scope only) and have to be in
+Vice Gamers to play. It started as a Discord Activity; it moved to a web page
+because Discord only shows unverified Activities in servers under 25 members.
 
 ## Environment
 
@@ -11,13 +16,17 @@ environment; a missing value raises when it is first needed.
 
 | Variable | What it is |
 |---|---|
-| `VICE_ARCADE_CLIENT_ID` | The Vice Arcade application id. Public. Also builds the allowed CORS origin. |
-| `VICE_ARCADE_CLIENT_SECRET` | Secret. Used only to exchange an OAuth code for an access token. |
-| `VICE_ARCADE_BOT_TOKEN` | Secret. Used only to read an Activity instance's location. |
-| `VICE_GAMERS_GUILD_ID` | The only guild play is allowed from. |
-| `VG_ARCADE_CHANNEL_ID` | The only channel play is allowed from. |
-| `ARCADE_SESSION_SIGNING_KEY` | Secret. Signs play sessions and launch identities. |
+| `VICE_ARCADE_CLIENT_ID` | The Vice Arcade application id. Public. |
+| `VICE_ARCADE_CLIENT_SECRET` | Secret. Used only to exchange a sign-in code for an access token. |
+| `VICE_ARCADE_BOT_TOKEN` | Secret. Used only to look up whether a player is in Vice Gamers. |
+| `VICE_GAMERS_GUILD_ID` | The server players have to be in. |
+| `ARCADE_SESSION_SIGNING_KEY` | Secret. Signs play sessions and sign-in identities. |
 | `BOT_API_SECRET` | Already present. Authenticates the bot's calls. |
+| `ARCADE_REDIRECT_URIS` | Optional. Comma-separated pages sign-in may return to. Defaults to `https://arcade.vicers.net/,http://localhost:5173/`. |
+
+Each redirect also has to be added under OAuth2 > Redirects for the Vice Arcade
+application in the Discord Developer Portal, exactly as written, trailing slash
+included.
 
 The three Vice Arcade credentials keep their spec names rather than the plain
 `BOT_TOKEN` used in the client-side scratch `.env`, because this API also talks
@@ -56,16 +65,17 @@ it unrepresentable rather than merely avoided.
 
 ## Endpoints
 
-### The Activity
+### The arcade page
 
-Authenticates with `X-Arcade-Identity`, the signed identity issued at launch.
-Identity comes from Discord once per launch, never from a claim the browser makes
-about itself.
+Authenticates with `X-Arcade-Identity`, the signed identity issued at sign-in and
+good for a week. Identity comes from Discord, never from a claim the browser
+makes about itself, and Discord's access token never leaves the server.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `token` | Exchanges the OAuth code. The only use of the client secret. |
-| POST | `sessions` | The guild and channel gate, then a signed single-use session. Fails closed if Discord cannot be reached. |
+| POST | `token` | Sign-in: exchanges the OAuth code and turns away anyone not in Vice Gamers. The only use of the client secret. |
+| GET | `appearance` | Public. The uploaded background, logo, tagline and game thumbnails. |
+| POST | `sessions` | Asks Discord again whether the player is in Vice Gamers, then issues a signed single-use session. Fails closed if Discord cannot be reached. |
 | POST | `scores` | Banks one run. |
 | GET | `leaderboards/<game_slug>` | Daily, round and all-time, plus your own rank and the reset time. |
 
@@ -122,3 +132,16 @@ too tight would reject genuine runs.
 ```
 python manage.py test arcade
 ```
+
+## Changing how the page looks
+
+Django admin, no deploy. Changes show on the page at its next load.
+
+- **Arcade appearance:** the page background, an optional logo shown instead
+  of the VICE ARCADE heading, and the tagline under it.
+- **Arcade games:** each game's lobby thumbnail, shown at 16:9 (1280x720 is
+  ideal).
+
+Every image is optional; a blank field leaves the page's built-in look in place.
+Uploads are capped at 5 MB, since they are served as they are to every visitor,
+and are stored under `media/arcade/`, which the web server already serves.

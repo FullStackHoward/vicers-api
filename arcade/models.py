@@ -15,6 +15,7 @@ Two rules govern this module and are repeated where they bite:
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -100,6 +101,74 @@ class ArcadeSettings(models.Model):
         return row
 
 
+# Uploads are served straight from MEDIA_ROOT to every visitor, so an image of
+# tens of megabytes is a page that never finishes loading on a phone.
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def limit_image_size(image):
+    if image and image.size > MAX_IMAGE_BYTES:
+        raise ValidationError(
+            f'Images have to be {MAX_IMAGE_BYTES // (1024 * 1024)} MB or smaller. '
+            f'Export it smaller, or as a JPG or WebP instead of a PNG.'
+        )
+
+
+class ArcadeAppearance(models.Model):
+    """
+    How the arcade page looks: the images and wording that change without a
+    deploy. One row, always pk=1, edited in Django admin like ArcadeSettings.
+
+    Every field is optional. Left blank, the page uses its built-in look, so the
+    arcade never shows a broken image while this is being filled in.
+    """
+
+    SINGLETON_PK = 1
+    DEFAULT_TAGLINE = 'Pick a cabinet.'
+
+    background_image = models.ImageField(
+        upload_to='arcade/appearance/',
+        blank=True,
+        validators=[limit_image_size],
+        help_text='Behind the whole page. It is cropped to fill the screen, so keep '
+                  'the important part near the middle. At least 1920x1080, '
+                  'as a JPG or WebP, 5 MB or smaller.',
+    )
+    logo_image = models.ImageField(
+        upload_to='arcade/appearance/',
+        blank=True,
+        validators=[limit_image_size],
+        help_text='Optional. Shown instead of the VICE ARCADE heading. A PNG or WebP '
+                  'with a transparent background, around 1200 pixels wide.',
+    )
+    tagline = models.CharField(
+        max_length=120,
+        blank=True,
+        default=DEFAULT_TAGLINE,
+        help_text='The line under the heading.',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Arcade appearance'
+        verbose_name_plural = 'Arcade appearance'
+
+    def __str__(self):
+        return 'Arcade appearance'
+
+    def save(self, *args, **kwargs):
+        self.pk = self.SINGLETON_PK
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError('The arcade appearance row cannot be deleted.')
+
+    @classmethod
+    def load(cls):
+        row, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
+        return row
+
+
 class ArcadeGame(models.Model):
     slug = models.SlugField(max_length=40, unique=True)
     display_name = models.CharField(max_length=60)
@@ -114,6 +183,13 @@ class ArcadeGame(models.Model):
         blank=True,
         help_text='Per-game limits used to reject impossible runs. See '
                   'arcade/plausibility.py for the keys this reads.',
+    )
+    thumbnail = models.ImageField(
+        upload_to='arcade/thumbnails/',
+        blank=True,
+        validators=[limit_image_size],
+        help_text='The picture on this game\'s cabinet in the lobby. Shown at 16:9, '
+                  'so 1280x720 is ideal.',
     )
 
     class Meta:

@@ -1,8 +1,8 @@
 """
 Issuing play sessions and accepting scores.
 
-The gate runs at session issue, not at submit, so a player is told they are in
-the wrong place before they spend a run rather than after. Submit then re-checks
+The gate runs at session issue, not at submit, so a player is told they cannot
+play before they spend a run rather than after. Submit then re-checks
 everything that could have changed in between: the session being spent, expiring,
 or the player having left the server mid-run.
 
@@ -17,7 +17,7 @@ from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 
-from . import conf, departures, leaderboards, plausibility, podium, rollover
+from . import conf, departures, discord_api, leaderboards, plausibility, podium, rollover
 from .models import (
     ArcadeEvent,
     ArcadeSeason,
@@ -31,10 +31,11 @@ from .models import (
 SIGNING_SALT = 'arcade.play-session'
 IDENTITY_SALT = 'arcade.identity'
 
-# How long the signed identity issued at launch stays good for. One Activity
-# session is far shorter than this; the point is to call Discord once per launch
-# rather than once per board view, not to keep anyone signed in.
-IDENTITY_TTL_SECONDS = 12 * 60 * 60
+# How long the signed identity issued at sign-in stays good for. A week, so a
+# member is not sent through Discord every visit. It carries no privileges beyond
+# naming the player, and membership is checked again with Discord before every
+# run, so a long life does not let anyone who has left keep playing.
+IDENTITY_TTL_SECONDS = 7 * 24 * 60 * 60
 
 # The seed the game feeds its deterministic RNG. A uint32, because that is what
 # mulberry32 consumes in the client engine.
@@ -65,7 +66,7 @@ def sign_identity(discord_user_id, display_name):
     """
     Proof that we asked Discord who this is.
 
-    Identity is established once, at launch, by exchanging the OAuth code and
+    Identity is established once, at sign-in, by exchanging the OAuth code and
     calling `/users/@me`. Everything after that presents this token, so reading a
     leaderboard does not cost a Discord round trip. It is signed with the same
     key as a play session and carries no privileges beyond naming the player.
@@ -87,7 +88,7 @@ def read_identity(token):
             max_age=IDENTITY_TTL_SECONDS,
         )
     except signing.SignatureExpired:
-        raise GateRefused('identity_expired', 'Reload the Activity to sign in again.')
+        raise GateRefused('identity_expired', 'Sign in with Discord again.')
     except signing.BadSignature:
         raise GateRefused('bad_identity', 'That identity token is not valid.')
 
@@ -129,35 +130,34 @@ def read_session_token(token):
     return session_id
 
 
-def check_location(instance):
+def confirm_member(discord_user_id):
     """
-    The guild and channel gate.
+    The membership gate: the player has to be in Vice Gamers right now.
 
-    Play is limited to one channel, enforced here rather than by Discord's
-    integration settings, so the restriction holds whatever the portal is set to.
+    Asked of Discord at sign-in and again before every run, so somebody who has
+    left cannot keep playing on an identity issued while they were still in.
+    DiscordUnavailable is left to the caller, which must fail closed.
+
+    Returns the location a session is stamped with. There is no channel any more:
+    the arcade is a web page, and membership is the whole gate.
     """
-    location = (instance or {}).get('location') or {}
+    try:
+        member = discord_api.guild_member(conf.guild_id(), discord_user_id)
+    except discord_api.DiscordError as error:
+        if error.code in (discord_api.UNKNOWN_MEMBER, discord_api.UNKNOWN_USER) or error.status == 404:
+            raise GateRefused('wrong_guild')
+        raise
 
-    if str(location.get('guild_id') or '') != conf.guild_id():
-        raise GateRefused('wrong_guild')
+    # A member who has joined but not yet accepted the rules screen. Discord itself
+    # will not let them talk yet, so neither does the arcade.
+    if member.get('pending'):
+        raise GateRefused('member_pending')
 
-    if str(location.get('channel_id') or '') != conf.arcade_channel_id():
-        raise GateRefused('wrong_channel')
-
-    return location
-
-
-def check_membership_of_instance(instance, discord_user_id):
-    """The player has to actually be in the instance they claim to be playing in."""
-    users = (instance or {}).get('users') or []
-    ids = {str(entry.get('id') if isinstance(entry, dict) else entry) for entry in users}
-
-    if ids and str(discord_user_id) not in ids:
-        raise GateRefused('not_in_instance')
+    return {'guild_id': conf.guild_id(), 'channel_id': ''}
 
 
 @transaction.atomic
-def issue_session(discord_user_id, game, location, instance_id, now=None):
+def issue_session(discord_user_id, game, location, instance_id='', now=None):
     """
     A signed, single-use session. The row is the authority; the token only names it.
     """
@@ -199,9 +199,6 @@ def _load_usable_session(session_id, discord_user_id, now):
 
     if session.guild_id != conf.guild_id():
         raise SubmissionRefused('wrong_guild', 'That session was not issued in Vice Gamers.')
-
-    if session.channel_id != conf.arcade_channel_id():
-        raise SubmissionRefused('wrong_channel', 'That session was not issued in the arcade channel.')
 
     return session
 

@@ -1,8 +1,8 @@
 """
 The arcade's HTTP surface.
 
-Two audiences: the Activity, which presents the signed identity it was given at
-launch, and the bot, which presents the shared secret. They never share an
+Two audiences: the arcade web page, which presents the signed identity it was
+given at sign-in, and the bot, which presents the shared secret. They never share an
 endpoint.
 
 Lazy finalization hangs off `tick`, called by the endpoints that are reached
@@ -31,6 +31,7 @@ from . import (
 )
 from .models import (
     ArcadeAlertOptIn,
+    ArcadeAppearance,
     ArcadeEvent,
     ArcadeGame,
     ArcadeSeason,
@@ -44,8 +45,7 @@ from .permissions import ArcadeIdentity, IsBot, require_player
 # The refusal copy the spec specifies, keyed by the gate's reason.
 GATE_COPY = {
     'wrong_guild': 'Vice Arcade is for Vice Gamers members. Apply at discord.vicers.net.',
-    'wrong_channel': 'Vetrix is played in #vice-arcade. Head over there to play.',
-    'not_in_instance': 'That game session belongs to someone else.',
+    'member_pending': 'Finish joining Vice Gamers in Discord first, then sign in again.',
 }
 
 
@@ -74,15 +74,28 @@ def gate_response(refused):
 
 
 # ---------------------------------------------------------------------------
-# The Activity
+# The arcade web page
 # ---------------------------------------------------------------------------
+
+def discord_unavailable(detail):
+    # Fail closed. A gate that cannot reach Discord must not let anyone in.
+    return Response(
+        {'error': 'discord_unavailable', 'detail': detail},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
 
 class TokenExchangeView(APIView):
     """
-    Swap the Activity's OAuth code for an access token and a signed identity.
+    Sign-in: swap the OAuth code for a signed identity.
 
-    This is the only place the client secret is used, and the only Discord
-    identity call in a launch. Everything afterwards presents the identity token.
+    Discord sends the player back to the arcade with a code; the page posts it
+    here with the redirect it was sent to. This is the only place the client
+    secret is used. Non-members are turned away here, at the door, rather than
+    after they have picked a game.
+
+    Discord's access token stays on the server. The page never needs it: every
+    later call presents the identity token instead.
     """
 
     authentication_classes = []
@@ -91,15 +104,22 @@ class TokenExchangeView(APIView):
     def post(self, request):
         payload = arcade_serializers.TokenExchangeSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        redirect_uri = payload.validated_data['redirect_uri']
+
+        if redirect_uri not in conf.redirect_uris():
+            return Response(
+                {'error': 'bad_redirect', 'detail': 'Sign in from arcade.vicers.net.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            exchanged = discord_api.exchange_code(payload.validated_data['code'])
+            exchanged = discord_api.exchange_code(payload.validated_data['code'], redirect_uri)
             user = discord_api.current_user(exchanged['access_token'])
+            play.confirm_member(user['id'])
         except discord_api.DiscordUnavailable:
-            return Response(
-                {'error': 'discord_unavailable', 'detail': 'Discord did not answer. Try again.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            return discord_unavailable('Discord did not answer. Try again.')
+        except play.GateRefused as refused:
+            return gate_response(refused)
         except discord_api.DiscordError as error:
             return Response(
                 {'error': 'discord_refused', 'detail': str(error)},
@@ -109,18 +129,30 @@ class TokenExchangeView(APIView):
         display_name = user.get('global_name') or user.get('username') or 'Player'
 
         return Response({
-            'access_token': exchanged['access_token'],
             'identity': play.sign_identity(user['id'], display_name),
-            'player': {'discord_user_id': user['id'], 'display_name': display_name},
+            'player': {
+                'discord_user_id': user['id'],
+                'display_name': display_name,
+                'avatar_url': avatar_url(user),
+            },
         })
+
+
+def avatar_url(user):
+    avatar = user.get('avatar')
+    if not avatar:
+        return None
+    extension = 'gif' if avatar.startswith('a_') else 'png'
+    return f'https://cdn.discordapp.com/avatars/{user["id"]}/{avatar}.{extension}?size=64'
 
 
 class SessionView(APIView):
     """
-    The guild and channel gate, then a signed single-use play session.
+    The membership gate, then a signed single-use play session.
 
-    The gate runs here rather than at submit so a player in the wrong place is
-    told before they spend a run, not after.
+    The gate runs here rather than at submit so a player who cannot play is told
+    before they spend a run, not after. Membership is asked of Discord fresh each
+    time, because the identity token can be days old.
     """
 
     authentication_classes = [ArcadeIdentity]
@@ -134,34 +166,20 @@ class SessionView(APIView):
         game = get_object_or_404(
             ArcadeGame, slug=payload.validated_data['game'], is_active=True
         )
-        instance_id = payload.validated_data.get('instance_id') or ''
-
-        if not instance_id:
-            return gate_response(play.GateRefused('no_instance', 'No Activity instance was given.'))
 
         try:
-            instance = discord_api.activity_instance(instance_id)
+            location = play.confirm_member(player['discord_user_id'])
         except discord_api.DiscordUnavailable:
-            # Fail closed. A gate that cannot reach Discord must not let anyone in.
-            return Response(
-                {'error': 'discord_unavailable', 'detail': 'Could not confirm where you are playing. Try again.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        except discord_api.DiscordError as error:
-            return Response(
-                {'error': 'unknown_instance', 'detail': str(error)},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            location = play.check_location(instance)
-            play.check_membership_of_instance(instance, player['discord_user_id'])
+            return discord_unavailable('Could not confirm you are in Vice Gamers. Try again.')
         except play.GateRefused as refused:
             return gate_response(refused)
+        except discord_api.DiscordError as error:
+            return Response(
+                {'error': 'discord_refused', 'detail': str(error)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        session, token = play.issue_session(
-            player['discord_user_id'], game, location, instance_id
-        )
+        session, token = play.issue_session(player['discord_user_id'], game, location)
 
         return Response({
             'session_token': token,
@@ -169,6 +187,39 @@ class SessionView(APIView):
             'game': game.slug,
             'expires_at': session.expires_at.isoformat(),
         }, status=status.HTTP_201_CREATED)
+
+
+class AppearanceView(APIView):
+    """
+    The page's uploaded images and wording, from the Arcade appearance and Arcade
+    game screens in admin. Public: it is read before anyone signs in, and it holds
+    nothing that is not already on the page.
+
+    A blank field comes back as null, and the page keeps its built-in look for it.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        look = ArcadeAppearance.load()
+
+        def url(image):
+            return request.build_absolute_uri(image.url) if image else None
+
+        return Response({
+            'background_url': url(look.background_image),
+            'logo_url': url(look.logo_image),
+            'tagline': look.tagline,
+            'games': {
+                game.slug: {
+                    'display_name': game.display_name,
+                    'thumbnail_url': url(game.thumbnail),
+                }
+                for game in ArcadeGame.objects.filter(is_active=True)
+            },
+            'updated_at': look.updated_at.isoformat() if look.updated_at else None,
+        })
 
 
 class ScoreSubmitView(APIView):
