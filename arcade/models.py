@@ -129,16 +129,19 @@ class ArcadeAppearance(models.Model):
         upload_to='arcade/appearance/',
         blank=True,
         validators=[limit_image_size],
-        help_text='Behind the whole page. It is cropped to fill the screen, so keep '
-                  'the important part near the middle. At least 1920x1080, '
-                  'as a JPG or WebP, 5 MB or smaller.',
+        verbose_name='Cabinet background',
+        help_text='Behind the lobby, where players pick a cabinet. Each game has its '
+                  'own background on its Arcade game screen. Cropped to fill the '
+                  'screen, so keep the important part near the middle. At least '
+                  '1920x1080, as a JPG or WebP, 5 MB or smaller.',
     )
     logo_image = models.ImageField(
         upload_to='arcade/appearance/',
         blank=True,
         validators=[limit_image_size],
-        help_text='Optional. Shown instead of the VICE ARCADE heading. A PNG or WebP '
-                  'with a transparent background, around 1200 pixels wide.',
+        verbose_name='Cabinet logo',
+        help_text='Optional. Shown instead of the VICE ARCADE heading in the lobby. A '
+                  'PNG or WebP with a transparent background, around 1200 pixels wide.',
     )
     tagline = models.CharField(
         max_length=120,
@@ -189,6 +192,24 @@ class ArcadeGame(models.Model):
         validators=[limit_image_size],
         help_text='The picture on this game\'s cabinet in the lobby. Shown at 16:9, '
                   'so 1280x720 is ideal.',
+    )
+    background_image = models.ImageField(
+        upload_to='arcade/games/',
+        blank=True,
+        validators=[limit_image_size],
+        help_text='Behind this game while it is being played. Left blank, the game '
+                  'uses the built-in backdrop, not the cabinet background. Cropped to '
+                  'fill the screen, so keep the important part near the middle. At '
+                  'least 1920x1080, as a JPG or WebP, 5 MB or smaller.',
+    )
+    logo_image = models.ImageField(
+        upload_to='arcade/games/',
+        blank=True,
+        validators=[limit_image_size],
+        help_text='Top centre, above the game. Left blank, the game shows its name as a '
+                  'placeholder. A PNG or WebP with a transparent background, wide '
+                  'rather than tall (it is shown at most 72 pixels high on a computer '
+                  'and 44 on a phone), around 900x180.',
     )
 
     class Meta:

@@ -534,6 +534,8 @@ class AppearanceEndpointTests(ApiMixin, TestCase):
         self.assertIsNone(body['logo_url'])
         self.assertEqual(body['tagline'], ArcadeAppearance.DEFAULT_TAGLINE)
         self.assertEqual(body['games'][self.game.slug]['thumbnail_url'], None)
+        self.assertIsNone(body['games'][self.game.slug]['background_url'])
+        self.assertIsNone(body['games'][self.game.slug]['logo_url'])
 
     def test_uploaded_images_come_back_as_absolute_urls(self):
         look = ArcadeAppearance.load()
@@ -547,6 +549,22 @@ class AppearanceEndpointTests(ApiMixin, TestCase):
         self.assertTrue(body['background_url'].startswith('http://testserver/media/arcade/appearance/night'))
         self.assertTrue(body['games'][self.game.slug]['thumbnail_url'].startswith(
             'http://testserver/media/arcade/thumbnails/vetrix'))
+
+    def test_each_game_has_its_own_background_and_logo_apart_from_the_cabinet(self):
+        look = ArcadeAppearance.load()
+        look.background_image = SimpleUploadedFile('lobby.png', PIXEL_PNG, content_type='image/png')
+        look.save()
+        self.game.background_image = SimpleUploadedFile('vetrix-bg.png', PIXEL_PNG, content_type='image/png')
+        self.game.logo_image = SimpleUploadedFile('vetrix-logo.png', PIXEL_PNG, content_type='image/png')
+        self.game.save()
+
+        body = self.client.get('/api/arcade/appearance').json()
+        game = body['games'][self.game.slug]
+
+        self.assertIn('/media/arcade/appearance/lobby', body['background_url'])
+        self.assertTrue(game['background_url'].startswith('http://testserver/media/arcade/games/vetrix-bg'))
+        self.assertTrue(game['logo_url'].startswith('http://testserver/media/arcade/games/vetrix-logo'))
+        self.assertIsNone(body['logo_url'], 'the cabinet logo is separate from the game logo')
 
     def test_it_needs_no_sign_in(self):
         self.assertEqual(self.client.get('/api/arcade/appearance').status_code, 200)

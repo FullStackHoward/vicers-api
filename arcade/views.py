@@ -193,7 +193,8 @@ class SessionView(APIView):
 class AppearanceView(APIView):
     """
     The page's uploaded images and wording, from the Arcade appearance and Arcade
-    game screens in admin. Public: it is read before anyone signs in, and it holds
+    game screens in admin. `background_url` and `logo_url` at the top level are the
+    cabinet's (the lobby); each game carries its own. Public: it is read before anyone signs in, and it holds
     nothing that is not already on the page.
 
     A blank field comes back as null, and the page keeps its built-in look for it.
@@ -216,6 +217,8 @@ class AppearanceView(APIView):
                 game.slug: {
                     'display_name': game.display_name,
                     'thumbnail_url': url(game.thumbnail),
+                    'background_url': url(game.background_image),
+                    'logo_url': url(game.logo_image),
                 }
                 for game in ArcadeGame.objects.filter(is_active=True)
             },
