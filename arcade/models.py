@@ -33,7 +33,6 @@ class RemovalReason(models.TextChoices):
 
 class EventType(models.TextChoices):
     NEW_ALLTIME_RECORD = 'new_alltime_record', 'New all-time record'
-    RECORD_PENDING_REVIEW = 'record_pending_review', 'Record pending review'
     PB_PASSED = 'pb_passed', 'Personal best passed'
     PODIUM_CHANGED = 'podium_changed', 'Podium changed'
     SEASON_CLOSING = 'season_closing', 'Season closing'
@@ -292,12 +291,6 @@ class Score(models.Model):
     input_log = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
-    flagged = models.BooleanField(
-        default=False,
-        help_text='A score that beat the all-time best. Shown with a pending marker '
-                  'until it is approved.',
-    )
-    approved = models.BooleanField(default=True)
     removed = models.BooleanField(default=False)
     removal_reason = models.CharField(
         max_length=20,
@@ -314,10 +307,6 @@ class Score(models.Model):
 
     def __str__(self):
         return f'{self.display_name} scored {self.score} on {self.game.slug}'
-
-    @property
-    def counts_for_podium(self):
-        return self.approved and not self.removed and not self.flagged
 
 
 class PersonalBest(models.Model):

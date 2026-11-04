@@ -15,7 +15,7 @@ from django.contrib import admin, messages
 from django.urls import reverse
 from django.utils.html import format_html
 
-from . import rollover, seasons
+from . import play, rollover, seasons
 from .models import (
     ArcadeAlertOptIn,
     ArcadeAppearance,
@@ -191,11 +191,27 @@ class ArcadeSeasonAdmin(admin.ModelAdmin):
 
 @admin.register(Score)
 class ScoreAdmin(admin.ModelAdmin):
-    list_display = ['display_name', 'game', 'score', 'created_at', 'flagged', 'approved', 'removed']
-    list_filter = ['game', 'flagged', 'approved', 'removed', 'removal_reason']
+    list_display = ['display_name', 'game', 'score', 'created_at', 'removed']
+    list_filter = ['game', 'removed', 'removal_reason']
     search_fields = ['discord_user_id', 'display_name']
-    readonly_fields = ['run_stats', 'input_log', 'created_at']
+    # `removed` is read-only so it can only change through the action below, which
+    # also rebuilds personal bests, the podium and any finished round it was in.
+    # Ticking the box by hand would leave all of those stale.
+    readonly_fields = ['run_stats', 'input_log', 'created_at', 'removed', 'removal_reason']
     date_hierarchy = 'created_at'
+    actions = ['take_off_every_board']
+
+    @admin.action(description='Take the selected scores off every board')
+    def take_off_every_board(self, request, queryset):
+        count = 0
+        for score in queryset.filter(removed=False):
+            play.remove_score(score)
+            count += 1
+        self.message_user(
+            request,
+            f'{count} score(s) taken off every board. Personal bests, the podium and any '
+            'finished round they were in have been recomputed.',
+        )
 
 
 @admin.register(PersonalBest)

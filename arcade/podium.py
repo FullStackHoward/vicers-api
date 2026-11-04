@@ -35,10 +35,7 @@ def counted_games(season):
 
 def standings(season, games=None):
     """
-    Every player with a counting score this season, best average placement first.
-
-    Only approved scores count, so a record still awaiting review shows on the
-    board with its marker but cannot hand anyone a role.
+    Every player with a score this season, best average placement first.
     """
     games = counted_games(season) if games is None else games
     if not games:
@@ -51,7 +48,7 @@ def standings(season, games=None):
     last_score_at = {}
 
     for game in games:
-        rows = leaderboards.season_rows(game, season, counting_only=True)
+        rows = leaderboards.season_rows(game, season)
         per_game[game.slug] = leaderboards.placements(rows, cap=cap)
 
         for row in rows:

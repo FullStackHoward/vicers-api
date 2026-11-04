@@ -3,7 +3,7 @@ Per-game limits that reject impossible runs.
 
 Stated plainly, as the spec does: the game runs on the player's device, so a
 determined cheater can fake inputs. These checks raise the effort required and
-nothing more. Replaying a flagged run server side from its seed and input log
+nothing more. Replaying a suspicious run server side from its seed and input log
 would be the next step up and is out of scope for v1.
 
 Limits live on `ArcadeGame.plausibility` so they can be tuned in admin without a

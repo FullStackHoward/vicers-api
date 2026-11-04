@@ -51,15 +51,12 @@ def make_season(starts_at, ends_at=None, interval_days=7, status=SeasonStatus.OP
     )
 
 
-def make_score(game, user, value, created_at, name=None, approved=True,
-               flagged=False, removed=False, removal_reason=''):
+def make_score(game, user, value, created_at, name=None, removed=False, removal_reason=''):
     score = Score.objects.create(
         discord_user_id=user,
         display_name=name or f'player-{user}',
         game=game,
         score=value,
-        approved=approved,
-        flagged=flagged,
         removed=removed,
         removal_reason=removal_reason,
     )

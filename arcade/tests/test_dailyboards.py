@@ -57,14 +57,6 @@ class FinalizationTests(TestCase):
         self.assertEqual(len(board.entries), 1)
         self.assertEqual(board.entries[0]['score'], 400)
 
-    def test_a_pending_score_carries_its_marker_onto_the_board(self):
-        make_score(self.game, 'a', 999, self.noon, approved=False, flagged=True)
-
-        dailyboards.finalize_due_boards(self.tomorrow)
-        board = DailyBoard.objects.get(game=self.game, day=self.day)
-
-        self.assertTrue(board.entries[0]['pending'])
-
     def test_a_day_with_no_scores_produces_no_row_and_no_post(self):
         make_score(self.game, 'a', 300, self.noon)
         # Two days later: the day in between was empty.

@@ -251,7 +251,6 @@ class ScoreSubmitView(APIView):
         return Response({
             'score_id': saved.id,
             'score': saved.score,
-            'pending_review': not saved.approved,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -334,18 +333,6 @@ class AckEventView(BotView):
             event.save(update_fields=['handled_at'])
 
         return Response({'id': event.id, 'handled_at': event.handled_at.isoformat()})
-
-
-class ApproveScoreView(BotView):
-    def post(self, request, score_id):
-        score = get_object_or_404(Score, pk=score_id)
-        event = play.approve_score(score)
-
-        return Response({
-            'score_id': score.id,
-            'approved': True,
-            'announced': event is not None,
-        })
 
 
 class RemoveScoreView(BotView):

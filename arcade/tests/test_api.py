@@ -222,10 +222,10 @@ class SubmitEndpointTests(ApiMixin, TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertFalse(response.json()['pending_review'])
+        self.assertNotIn('pending_review', response.json())
         self.assertEqual(Score.objects.count(), 1)
 
-    def test_a_record_comes_back_marked_pending(self):
+    def test_a_record_is_posted_straight_away_with_no_review(self):
         make_score(self.game, 'holder', 400, timezone.now() - timedelta(hours=1))
         started = self.start(user='challenger')
 
@@ -241,8 +241,12 @@ class SubmitEndpointTests(ApiMixin, TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.json()['pending_review'])
-        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.RECORD_PENDING_REVIEW).count(), 1)
+        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.NEW_ALLTIME_RECORD).count(), 1)
+        self.assertEqual(ArcadeEvent.objects.filter(type='record_pending_review').count(), 0)
+
+        body = self.client.get(f'/api/arcade/leaderboards/{self.game.slug}').json()
+        self.assertEqual(body['alltime']['leader']['discord_user_id'], 'challenger')
+        self.assertNotIn('pending', body['alltime']['leader'])
 
     def test_a_refused_submission_explains_itself(self):
         started = self.start()
@@ -313,14 +317,6 @@ class LeaderboardEndpointTests(ApiMixin, TestCase):
         body = self.client.get(f'/api/arcade/leaderboards/{self.game.slug}').json()
 
         self.assertIsNone(body['alltime']['you'])
-
-    def test_a_pending_score_is_marked_on_the_board(self):
-        make_score(self.game, 'cheat', 900, self.now - timedelta(minutes=10),
-                   approved=False, flagged=True)
-
-        body = self.client.get(f'/api/arcade/leaderboards/{self.game.slug}').json()
-
-        self.assertTrue(body['alltime']['leader']['pending'])
 
     def test_an_unknown_game_is_a_404(self):
         self.assertEqual(self.client.get('/api/arcade/leaderboards/nope').status_code, 404)
@@ -453,18 +449,14 @@ class ReviewEndpointTests(ApiMixin, TestCase):
         self.now = timezone.now()
         self.season = make_season(self.now - timedelta(hours=2))
 
-    def test_approving_a_record_announces_it(self):
-        make_score(self.game, 'holder', 400, self.now - timedelta(hours=1))
-        record = make_score(self.game, 'new', 900, self.now - timedelta(minutes=30),
-                            approved=False, flagged=True)
+    def test_there_is_no_approve_endpoint_any_more(self):
+        record = make_score(self.game, 'new', 900, self.now - timedelta(minutes=30))
 
         response = self.client.post(
             f'/api/arcade/scores/{record.id}/approve', **bot_headers()
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['announced'])
-        self.assertEqual(ArcadeEvent.objects.filter(type=EventType.NEW_ALLTIME_RECORD).count(), 1)
+        self.assertEqual(response.status_code, 404)
 
     def test_removing_a_score_takes_it_off_the_board(self):
         keep = make_score(self.game, 'keeper', 100, self.now - timedelta(hours=1))
@@ -595,3 +587,27 @@ class CorsTests(ApiMixin, TestCase):
         allowed = response.headers.get('access-control-allow-headers', '')
         self.assertIn('x-arcade-identity', allowed)
         self.assertIn('content-type', allowed)
+
+
+class ScoreAdminTests(ApiMixin, TestCase):
+    def test_the_admin_action_takes_a_score_off_every_board(self):
+        from django.contrib.admin.sites import site
+        from django.contrib.auth import get_user_model
+        from django.test import RequestFactory
+
+        now = timezone.now()
+        make_season(now - timedelta(hours=2))
+        keep = make_score(self.game, 'keeper', 100, now - timedelta(hours=1))
+        drop = make_score(self.game, 'cheat', 900, now - timedelta(hours=1))
+
+        admin_obj = site._registry[Score]
+        request = RequestFactory().post('/')
+        request.user = get_user_model()(is_staff=True, is_superuser=True)
+        with mock.patch.object(admin_obj, 'message_user'):
+            admin_obj.take_off_every_board(request, Score.objects.filter(pk=drop.pk))
+
+        drop.refresh_from_db()
+        self.assertTrue(drop.removed)
+        self.assertEqual(drop.removal_reason, 'owner_removed')
+        body = self.client.get(f'/api/arcade/leaderboards/{self.game.slug}').json()
+        self.assertEqual(body['alltime']['leader']['discord_user_id'], keep.discord_user_id)

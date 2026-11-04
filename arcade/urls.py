@@ -21,7 +21,6 @@ urlpatterns = [
     # The bot
     path('events/pending', views.PendingEventsView.as_view(), name='arcade-events-pending'),
     path('events/<int:event_id>/ack', views.AckEventView.as_view(), name='arcade-events-ack'),
-    path('scores/<int:score_id>/approve', views.ApproveScoreView.as_view(), name='arcade-score-approve'),
     path('scores/<int:score_id>/remove', views.RemoveScoreView.as_view(), name='arcade-score-remove'),
     path('podium/current', views.CurrentPodiumView.as_view(), name='arcade-podium-current'),
     path('standings/live', views.LiveStandingsView.as_view(), name='arcade-standings-live'),
