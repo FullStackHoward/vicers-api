@@ -3,7 +3,7 @@ Who may call what.
 
 Two audiences, two mechanisms.
 
-The bot authenticates with the shared `X-Bot-Secret` header, matching the pattern
+The Vice Arcade bot authenticates with the shared `X-Bot-Secret` header, matching the pattern
 already used by `community.views.CreateAnnouncementView`. That check is written
 once here as a permission class rather than repeated inline across the dozen
 bot-only arcade endpoints.
@@ -19,9 +19,9 @@ from . import conf, play
 
 
 class IsBot(permissions.BasePermission):
-    """The shared-secret header the bot already uses for its other API calls."""
+    """The shared-secret header the Vice Arcade bot sends on every call."""
 
-    message = 'This endpoint is for Vice Verify Bot.'
+    message = 'This endpoint is for the Vice Arcade bot.'
 
     def has_permission(self, request, view):
         sent = request.headers.get('X-Bot-Secret')
