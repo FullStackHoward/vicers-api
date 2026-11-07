@@ -206,6 +206,10 @@ class AppearanceView(APIView):
     cabinet's (the lobby); each game carries its own. Public: it is read before anyone signs in, and it holds
     nothing that is not already on the page.
 
+    `discord_channel_url` is the arcade channel, for the game over screen's Back to
+    Discord button. The guild and channel IDs in it are not secrets: anyone in the
+    server can copy the same link. Null when VG_ARCADE_CHANNEL_ID is unset.
+
     A blank field comes back as null, and the page keeps its built-in look for it.
     """
 
@@ -231,6 +235,7 @@ class AppearanceView(APIView):
                 }
                 for game in ArcadeGame.objects.filter(is_active=True)
             },
+            'discord_channel_url': conf.arcade_channel_url(),
             'updated_at': look.updated_at.isoformat() if look.updated_at else None,
         })
 
