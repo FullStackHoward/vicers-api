@@ -566,6 +566,26 @@ class AppearanceEndpointTests(ApiMixin, TestCase):
         self.assertTrue(game['logo_url'].startswith('http://testserver/media/arcade/games/vetrix-logo'))
         self.assertIsNone(body['logo_url'], 'the cabinet logo is separate from the game logo')
 
+    def test_it_links_the_arcade_channel_when_one_is_set(self):
+        with mock.patch.dict(os.environ, {'VG_ARCADE_CHANNEL_ID': '4455'}):
+            body = self.client.get('/api/arcade/appearance').json()
+
+        self.assertEqual(body['discord_channel_url'], f'https://discord.com/channels/{GUILD}/4455')
+
+    def test_with_no_arcade_channel_there_is_no_link(self):
+        with mock.patch.dict(os.environ, {'VG_ARCADE_CHANNEL_ID': ''}):
+            response = self.client.get('/api/arcade/appearance')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['discord_channel_url'])
+
+    def test_a_missing_guild_id_leaves_the_link_out_rather_than_failing(self):
+        with mock.patch.dict(os.environ, {'VG_ARCADE_CHANNEL_ID': '4455', 'VICE_GAMERS_GUILD_ID': ''}):
+            response = self.client.get('/api/arcade/appearance')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['discord_channel_url'])
+
     def test_it_needs_no_sign_in(self):
         self.assertEqual(self.client.get('/api/arcade/appearance').status_code, 200)
 

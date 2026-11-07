@@ -107,7 +107,7 @@ makes about itself, and Discord's access token never leaves the server.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `token` | Sign-in: exchanges the OAuth code and turns away anyone not in Vice Gamers. The only use of the client secret. |
-| GET | `appearance` | Public. The cabinet background, logo and tagline, and each game's thumbnail, background and logo. |
+| GET | `appearance` | Public. The cabinet background, logo and tagline, each game's thumbnail, background and logo, and `discord_channel_url` (the arcade channel, null when `VG_ARCADE_CHANNEL_ID` is unset) for the Back to Discord button. |
 | POST | `sessions` | Asks Discord again whether the player is in Vice Gamers, then issues a signed single-use session. Fails closed if Discord cannot be reached. |
 | POST | `scores` | Banks one run. |
 | GET | `leaderboards/<game_slug>` | Daily, round and all-time, plus your own rank and the reset time. |

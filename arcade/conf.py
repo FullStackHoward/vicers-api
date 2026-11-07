@@ -108,6 +108,20 @@ def arcade_channel_id():
     return str(config('VG_ARCADE_CHANNEL_ID', default='')).strip()
 
 
+def arcade_channel_url():
+    """
+    A link to the arcade channel, for the page's Back to Discord button. None when
+    either ID is unset, so the page leaves the button out rather than linking
+    nowhere. Read softly: this is served on a public endpoint, which must not fail
+    over a missing optional value.
+    """
+    guild = str(config('VICE_GAMERS_GUILD_ID', default='')).strip()
+    channel = arcade_channel_id()
+    if not guild or not channel:
+        return None
+    return f'https://discord.com/channels/{guild}/{channel}'
+
+
 def arcade_url():
     return str(config('ARCADE_URL', default='https://arcade.vicers.net')).strip().rstrip('/')
 
