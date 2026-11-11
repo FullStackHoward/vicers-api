@@ -212,6 +212,17 @@ class ArcadeGame(models.Model):
                   'rather than tall (it is shown at most 72 pixels high on a computer '
                   'and 44 on a phone), around 900x180.',
     )
+    record_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name='All-time record role',
+        help_text='The Discord role id for whoever holds this game\'s all-time high '
+                  'score, such as Vetrix Master. The Vice Arcade bot gives it to the '
+                  'record holder, moves it when the record is beaten, and announces '
+                  'both in the arcade channel. Create the role in Discord first, below '
+                  'the bot\'s own role, then paste its id here (Developer Mode, right '
+                  'click the role, Copy Role ID). Blank: no role for this game.',
+    )
 
     class Meta:
         ordering = ['display_name']

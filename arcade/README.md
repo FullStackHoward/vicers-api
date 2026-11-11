@@ -129,7 +129,7 @@ compared in constant time.
 | GET | `events/pending` |
 | POST | `events/<id>/ack` |
 | POST | `scores/<id>/remove` |
-| GET | `podium/current`, `standings/live` |
+| GET | `podium/current`, `standings/live`, `records/current` |
 | GET | `seasons/closing`, `seasons/<id>/preview` |
 | POST | `seasons/<id>/finalize` |
 | GET | `daily/<game_slug>/<day>` |
@@ -166,6 +166,11 @@ take a score off every board afterwards: in Django admin, select it under
 **Scores** and run **Take the selected scores off every board**. That rebuilds
 personal bests, the podium and any finished round it was in, which is why the
 `removed` box itself is read-only.
+
+Neon Breaker counts bricks rather than pieces, so it has its own keys:
+`max_score_per_brick` (seeded at 1400, the most a brick can pay under the game's own
+scoring plus a wall bonus share; see migration 0008) and `min_ms_per_brick` (unset until
+there are real runs).
 
 `max_score_per_piece` is intentionally unset on the seeded Vetrix row. It is the
 most useful of the checks and needs real numbers from a playtest; a guess that is
@@ -212,6 +217,28 @@ the posting tick. A player whose DMs are closed is noted in admin, not retried.
 ```
 python manage.py test arcade
 ```
+
+## The games
+
+Each cabinet is an **Arcade game** row. Vetrix is seeded by migration 0002 and Neon
+Breaker by migration 0008. A game is on the boards and in the callout as soon as it is
+active, but only counts toward the Arcade Champion standings from the first season that
+starts after its `active_from`, so Neon Breaker joins the podium average at the next
+reset rather than reshuffling the season in progress.
+
+The page has to know the game too: deploy the API (and migrate) before the page that adds
+a cabinet, or starting a run on it is refused as an unknown game.
+
+## Record roles
+
+Each game can have an **All-time record role** (Arcade games > the game > Record role),
+the Discord role id for whoever holds that game's top All Time score. `records/current`
+gives the bot every game's role and holder; the bot moves the role and announces each
+change in the arcade channel. A `new_alltime_record` event carries `record_role_id` so
+the record post can name the role. A switched-off game reports no holder, so its role
+comes off. Blank leaves the game without a role.
+
+The podium roles are unaffected: they are average placing across games (`podium.py`).
 
 ## Changing how the page looks
 

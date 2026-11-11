@@ -20,6 +20,8 @@ LIMIT_KEYS = (
     'max_chain',
     'max_level',
     'max_tiles_per_piece',
+    'max_score_per_brick',
+    'min_ms_per_brick',
 )
 
 
@@ -86,6 +88,27 @@ def check(game, score, run_stats):
         if tiles is not None and pieces is not None and tiles > pieces * max_tiles:
             problems.append(
                 f'{tiles} tiles cleared is more than {max_tiles} per piece over {pieces} pieces'
+            )
+
+    # Neon Breaker counts bricks rather than pieces.
+    bricks = _number(stats, 'bricks_broken')
+
+    per_brick = limits.get('max_score_per_brick')
+    if per_brick is not None:
+        if bricks is None:
+            problems.append('bricks_broken is missing, so the score cannot be checked')
+        elif score > bricks * per_brick:
+            problems.append(
+                f'score {score} is more than {per_brick} per brick over {bricks} bricks'
+            )
+
+    min_ms_brick = limits.get('min_ms_per_brick')
+    if min_ms_brick is not None:
+        if bricks is None or duration_ms is None:
+            problems.append('bricks_broken or duration_ms is missing, so the pace cannot be checked')
+        elif duration_ms < bricks * min_ms_brick:
+            problems.append(
+                f'{bricks} bricks in {duration_ms} ms is faster than {min_ms_brick} ms per brick'
             )
 
     return problems

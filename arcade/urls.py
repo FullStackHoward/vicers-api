@@ -28,6 +28,7 @@ urlpatterns = [
     path('scores/<int:score_id>/remove', views.RemoveScoreView.as_view(), name='arcade-score-remove'),
     path('podium/current', views.CurrentPodiumView.as_view(), name='arcade-podium-current'),
     path('standings/live', views.LiveStandingsView.as_view(), name='arcade-standings-live'),
+    path('records/current', views.RecordHoldersView.as_view(), name='arcade-records-current'),
     path('seasons/closing', views.ClosingSeasonsView.as_view(), name='arcade-seasons-closing'),
     path('seasons/<int:season_id>/preview', views.SeasonPreviewView.as_view(), name='arcade-season-preview'),
     path('seasons/<int:season_id>/finalize', views.SeasonFinalizeView.as_view(), name='arcade-season-finalize'),

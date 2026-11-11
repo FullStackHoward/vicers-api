@@ -286,6 +286,9 @@ def submit_score(token, discord_user_id, display_name, score, run_stats, input_l
                 'score': saved.score,
                 'previous_best': previous_record.score,
                 'previous_holder': previous_record.discord_user_id,
+                # The game's record role, so the post can name it. The bot moves the
+                # role itself from records/current.
+                'record_role_id': session.game.record_role_id or None,
             },
         )
 
