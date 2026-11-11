@@ -168,6 +168,10 @@ def finalize(season, winners):
                 'revision': locked.revision,
                 'starts_at': locked.starts_at.isoformat(),
                 'ends_at': locked.ends_at.isoformat(),
+                # How many games the placings were averaged over, so the callout can
+                # show the average when it means something and leave it out when
+                # there was only one game.
+                'games_counted': len(podium.counted_games(locked)),
                 'winners': [
                     {
                         'place': index,
@@ -226,6 +230,7 @@ def recompute_finalized(season):
                 'season_id': season.id,
                 'revision': season.revision,
                 'corrected': True,
+                'games_counted': len(podium.counted_games(season)),
                 'winners': [
                     {
                         'place': index,

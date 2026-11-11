@@ -35,6 +35,7 @@ from . import (
     leaderboards,
     play,
     podium,
+    records,
     rollover,
     seasons,
     serializers as arcade_serializers,
@@ -454,6 +455,17 @@ class CurrentPodiumView(BotView):
                 for row in holders
             ],
         })
+
+
+class RecordHoldersView(BotView):
+    """
+    Each game's all-time record holder and record role, which is what the record
+    roles are made to match. Read fresh, like the podium.
+    """
+
+    def get(self, request):
+        tick()
+        return Response({'records': records.current_records()})
 
 
 class LiveStandingsView(BotView):

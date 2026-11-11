@@ -172,12 +172,18 @@ class RunPostAdmin(admin.ModelAdmin):
 @admin.register(ArcadeGame)
 class ArcadeGameAdmin(admin.ModelAdmin):
     list_display = ['display_name', 'slug', 'is_active', 'active_from',
-                    'has_thumbnail', 'has_background', 'has_logo']
+                    'has_record_role', 'has_thumbnail', 'has_background', 'has_logo']
     list_filter = ['is_active']
     search_fields = ['slug', 'display_name']
     readonly_fields = ['thumbnail_preview', 'background_preview', 'logo_preview']
     fieldsets = [
         (None, {'fields': ['display_name', 'slug', 'is_active', 'active_from', 'plausibility']}),
+        ('Record role', {
+            'description': 'The role for this game\'s all-time high score holder. The '
+                           'Arcade Champion, Silver and Bronze roles are separate: they '
+                           'go by the average placing across every game.',
+            'fields': ['record_role_id'],
+        }),
         ('Look', {
             'description': 'This game\'s own images. The lobby\'s background and logo are '
                            'on the Arcade appearance screen.',
@@ -188,6 +194,10 @@ class ArcadeGameAdmin(admin.ModelAdmin):
             ],
         }),
     ]
+
+    @admin.display(description='Record role', boolean=True)
+    def has_record_role(self, obj):
+        return bool(obj.record_role_id)
 
     @admin.display(description='Thumbnail', boolean=True)
     def has_thumbnail(self, obj):
