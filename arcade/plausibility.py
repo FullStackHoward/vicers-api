@@ -22,6 +22,10 @@ LIMIT_KEYS = (
     'max_tiles_per_piece',
     'max_score_per_brick',
     'min_ms_per_brick',
+    'max_score_per_column',
+    'min_ms_per_column',
+    'max_score_per_kill',
+    'min_ms_per_kill',
 )
 
 
@@ -109,6 +113,48 @@ def check(game, score, run_stats):
         elif duration_ms < bricks * min_ms_brick:
             problems.append(
                 f'{bricks} bricks in {duration_ms} ms is faster than {min_ms_brick} ms per brick'
+            )
+
+    # Dolphin Dream counts columns passed.
+    columns = _number(stats, 'columns_passed')
+
+    per_column = limits.get('max_score_per_column')
+    if per_column is not None:
+        if columns is None:
+            problems.append('columns_passed is missing, so the score cannot be checked')
+        elif score > columns * per_column:
+            problems.append(
+                f'score {score} is more than {per_column} per column over {columns} columns'
+            )
+
+    min_ms_column = limits.get('min_ms_per_column')
+    if min_ms_column is not None:
+        if columns is None or duration_ms is None:
+            problems.append('columns_passed or duration_ms is missing, so the pace cannot be checked')
+        elif duration_ms < columns * min_ms_column:
+            problems.append(
+                f'{columns} columns in {duration_ms} ms is faster than {min_ms_column} ms per column'
+            )
+
+    # Sunset Shatter counts kills.
+    kills = _number(stats, 'kills')
+
+    per_kill = limits.get('max_score_per_kill')
+    if per_kill is not None:
+        if kills is None:
+            problems.append('kills is missing, so the score cannot be checked')
+        elif score > kills * per_kill:
+            problems.append(
+                f'score {score} is more than {per_kill} per kill over {kills} kills'
+            )
+
+    min_ms_kill = limits.get('min_ms_per_kill')
+    if min_ms_kill is not None:
+        if kills is None or duration_ms is None:
+            problems.append('kills or duration_ms is missing, so the pace cannot be checked')
+        elif duration_ms < kills * min_ms_kill:
+            problems.append(
+                f'{kills} kills in {duration_ms} ms is faster than {min_ms_kill} ms per kill'
             )
 
     return problems

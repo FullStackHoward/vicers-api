@@ -172,6 +172,12 @@ Neon Breaker counts bricks rather than pieces, so it has its own keys:
 scoring plus a wall bonus share; see migration 0008) and `min_ms_per_brick` (unset until
 there are real runs).
 
+Dolphin Dream counts columns passed (stat `columns_passed`) and Sunset Shatter counts
+kills (stat `kills`), so they have their own keys: `max_score_per_column` and
+`min_ms_per_column` (seeded at 2 and 700), and `max_score_per_kill` and `min_ms_per_kill`
+(seeded at 5100 and 100). The pace limits are derived from each game's starting tuning
+and must be re-derived if it changes; see migration 0009.
+
 `max_score_per_piece` is intentionally unset on the seeded Vetrix row. It is the
 most useful of the checks and needs real numbers from a playtest; a guess that is
 too tight would reject genuine runs.
@@ -220,11 +226,11 @@ python manage.py test arcade
 
 ## The games
 
-Each cabinet is an **Arcade game** row. Vetrix is seeded by migration 0002 and Neon
-Breaker by migration 0008. A game is on the boards and in the callout as soon as it is
+Each cabinet is an **Arcade game** row. Vetrix is seeded by migration 0002, Neon
+Breaker by migration 0008, and Dolphin Dream and Sunset Shatter by migration 0009. A game is on the boards and in the callout as soon as it is
 active, but only counts toward the Arcade Champion standings from the first season that
-starts after its `active_from`, so Neon Breaker joins the podium average at the next
-reset rather than reshuffling the season in progress.
+starts after its `active_from`, so Neon Breaker, Dolphin Dream and Sunset Shatter join
+the podium average at the next reset rather than reshuffling the season in progress.
 
 The page has to know the game too: deploy the API (and migrate) before the page that adds
 a cabinet, or starting a run on it is refused as an unknown game.
