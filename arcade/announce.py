@@ -220,10 +220,15 @@ def _message(color, icon, lines, label, url):
     }
 
 
-MEDALS = ['🥇', '🥈', '🥉']
+# Longest player name in the pinned post, the same cut the lobby card uses
+# (NAME_MAX in the page's cabinet-card.js). A display name can be 64 characters.
+CALLOUT_NAME_MAX = 14
 
-# Places shown per board in the pinned post. The full board is in the arcade.
-CALLOUT_TOP = 3
+# Discord's embed description limit is 4,096; this leaves headroom for the
+# embed's other fields. At the arcade's ten games the post is about 1,400, so
+# the guard in callout_message only matters if the cap is raised or an admin
+# enters very long game names.
+CALLOUT_DESCRIPTION_LIMIT = 3800
 
 
 def ordinal(place):
@@ -234,42 +239,78 @@ def ordinal(place):
     return f'{place}{suffix}'
 
 
-def _top_lines(rows, empty):
+def _leader(rows):
+    """The first row of a board as `Name 1,234`, or `none` when it is empty."""
     if not rows:
-        return [empty]
-    return [
-        f'{MEDALS[index]} {row["display_name"]} · {_number(row["score"])}'
-        for index, row in enumerate(rows[:CALLOUT_TOP])
+        return 'none'
+    name = rows[0]['display_name']
+    if len(name) > CALLOUT_NAME_MAX:
+        name = f'{name[:CALLOUT_NAME_MAX - 1]}…'
+    return f'{name} {_number(rows[0]["score"])}'
+
+
+def _callout_lines(games, with_season, hidden, season_stamp):
+    lines = [
+        f'## {PLAY_EMOJI} The arcade is open',
+        'Play right in your browser. Sign in with Discord and every run lands on '
+        'the Vice Gamers leaderboards.',
+        '',
+        '**Best score per game**',
     ]
+    for name, today, season in games:
+        line = f'**{name}** · today {today}'
+        if with_season:
+            line += f' · season {season}'
+        lines.append(line)
+    if hidden:
+        lines.append(f'…and {hidden} more on the site')
+
+    footer = 'Full boards for every game are on the site.'
+    if not with_season:
+        footer += ' Season leaders are on the site.'
+    lines += [
+        '',
+        f'{footer} Today\'s board starts fresh every night at midnight Eastern.',
+        f'This season ends <t:{season_stamp}:F> (<t:{season_stamp}:R>).',
+    ]
+    return lines
 
 
 def callout_message(icon, now):
     """
-    The pinned post: the top three on today's board and this season's board for
-    each game, and when each resets. Edited whenever those change, so it is the
-    running leaderboard in the channel.
+    The pinned post: one line per game with that game's best score today and
+    best this season, and when each resets. Edited whenever those change, so it
+    is the running leaderboard in the channel. Full boards are on the site.
+
+    Kept under CALLOUT_DESCRIPTION_LIMIT: if the post is too long it first drops
+    the season half of every line, then drops games from the end.
     """
     season = rollover.ensure_current_season(now)
     today = seasons.eastern_date(now)
     stamp = int(season.ends_at.timestamp())
 
-    lines = [
-        f'## {PLAY_EMOJI} The arcade is open',
-        'Play right in your browser. Sign in with Discord and every run lands on '
-        'the Vice Gamers leaderboards.',
+    games = [
+        (
+            game.display_name,
+            _leader(leaderboards.daily_rows(game, today)),
+            _leader(leaderboards.season_rows(game, season)),
+        )
+        for game in ArcadeGame.objects.filter(is_active=True).order_by('display_name')
     ]
 
-    for game in ArcadeGame.objects.filter(is_active=True).order_by('display_name'):
-        lines += ['', f'### {game.display_name}', '**Today**']
-        lines += _top_lines(leaderboards.daily_rows(game, today), 'Nobody yet. Be the first.')
-        lines += ['', '**This season**']
-        lines += _top_lines(leaderboards.season_rows(game, season), 'Up for grabs.')
+    def build(shown, with_season):
+        return _callout_lines(games[:shown], with_season, len(games) - shown, stamp)
 
-    lines += [
-        '',
-        'Today\'s board starts fresh every night at midnight Eastern.',
-        f'This season ends <t:{stamp}:F> (<t:{stamp}:R>).',
-    ]
+    def fits(lines):
+        return len('\n'.join(lines)) <= CALLOUT_DESCRIPTION_LIMIT
+
+    lines = build(len(games), True)
+    if not fits(lines):
+        lines = build(len(games), False)
+        shown = len(games)
+        while not fits(lines) and shown > 0:
+            shown -= 1
+            lines = build(shown, False)
 
     return _message(CALLOUT_COLOR, icon, lines, 'Play Vice Arcade', play_url())
 
