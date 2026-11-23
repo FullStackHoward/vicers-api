@@ -11,7 +11,20 @@ deploy. Every key is optional, and a key that is absent is not checked, which
 means an empty dict accepts anything. That is the right default for a cabinet
 whose real numbers are not known yet, and the reason Vetrix's limits are seeded
 from a real playtest rather than guessed here.
+
+`unit_limits` is the generic key for a game that counts some new kind of thing.
+Rather than two more fixed keys and more code each time, a game lists entries
+like `{"stat": "foods_eaten", "label": "foods", "max_score_each": 210,
+"min_ms_each": 180}` and `check` applies the same two rules to each: score is at
+most `max_score_each` per counted unit, and the run took at least `min_ms_each`
+per unit. `label` is only for the message and defaults to `stat`. A malformed
+entry is skipped with a logged warning, never raised, so a typo in admin cannot
+turn every submission into an error.
 """
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 LIMIT_KEYS = (
     'max_score',
@@ -26,6 +39,7 @@ LIMIT_KEYS = (
     'min_ms_per_column',
     'max_score_per_kill',
     'min_ms_per_kill',
+    'unit_limits',
 )
 
 
@@ -156,5 +170,64 @@ def check(game, score, run_stats):
             problems.append(
                 f'{kills} kills in {duration_ms} ms is faster than {min_ms_kill} ms per kill'
             )
+
+    problems += _unit_problems(game, score, stats, duration_ms, limits.get('unit_limits'))
+
+    return problems
+
+
+def _is_limit(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _unit_problems(game, score, stats, duration_ms, entries):
+    """Problems from `unit_limits`. Malformed entries are skipped and logged once."""
+    if not entries:
+        return []
+    if not isinstance(entries, (list, tuple)):
+        logger.warning('arcade: unit_limits on %s is not a list, so it was skipped', game.slug)
+        return []
+
+    problems = []
+    skipped = False
+
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get('stat'), str) or not entry['stat']:
+            skipped = True
+            continue
+
+        stat = entry['stat']
+        label = entry.get('label')
+        if not isinstance(label, str) or not label:
+            label = stat
+        max_each = entry.get('max_score_each')
+        min_ms_each = entry.get('min_ms_each')
+
+        if (max_each is not None and not _is_limit(max_each)) or (
+            min_ms_each is not None and not _is_limit(min_ms_each)
+        ):
+            skipped = True
+            continue
+
+        count = _number(stats, stat)
+
+        if max_each is not None:
+            if count is None:
+                problems.append(f'{stat} is missing, so the score cannot be checked')
+            elif score > count * max_each:
+                problems.append(
+                    f'score {score} is more than {max_each} per {label} over {count} {label}'
+                )
+
+        if min_ms_each is not None:
+            if count is None or duration_ms is None:
+                problems.append(f'{stat} or duration_ms is missing, so the pace cannot be checked')
+            elif duration_ms < count * min_ms_each:
+                problems.append(
+                    f'{count} {label} in {duration_ms} ms is faster than {min_ms_each} ms per {label}'
+                )
+
+    if skipped:
+        logger.warning('arcade: skipped malformed unit_limits entries on %s', game.slug)
 
     return problems

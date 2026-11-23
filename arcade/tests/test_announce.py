@@ -16,7 +16,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from arcade import announce, discord_api
-from arcade.models import ArcadeCallout, RunPost
+from arcade.models import ArcadeCallout, ArcadeGame, RunPost
 from arcade.tests.factories import eastern, make_game, make_score, only_games
 from arcade.tests.test_play import ARCADE_ENV
 
@@ -294,7 +294,7 @@ class CalloutTests(AnnounceMixin, TestCase):
     def refresh(self, now=None):
         announce.refresh_callout(CHANNEL, ICON, now or self.now)
 
-    def test_the_callout_links_to_the_cabinet_and_shows_today_s_leader(self):
+    def test_the_callout_links_to_the_cabinet_and_shows_each_game_s_leaders_on_one_line(self):
         make_score(self.game, 'u1', 12400, self.now, name='Howard')
         self.refresh()
 
@@ -302,27 +302,72 @@ class CalloutTests(AnnounceMixin, TestCase):
         self.assertEqual(button(post)['url'], 'https://arcade.vicers.net/')
         self.assertEqual(button(post)['label'], 'Play Vice Arcade')
         self.assertRegex(description(post), r'^## 🕹️ The arcade is open')
-        self.assertIn('**Today**\n🥇 Howard · 12,400', description(post))
-        self.assertIn('**This season**\n🥇 Howard · 12,400', description(post))
+        self.assertIn('**Best score per game**\n', description(post))
+        self.assertIn('**Vetrix** · today Howard 12,400 · season Howard 12,400\n', description(post))
         self.assertIn('midnight Eastern', description(post))
         self.assertRegex(description(post), r'This season ends <t:\d+:F> \(<t:\d+:R>\)')
         self.assertEqual(post['payload']['embeds'][0]['thumbnail'], {'url': ICON})
 
-    def test_the_callout_shows_the_top_three_on_each_board(self):
-        for user, value, name in [('a', 400, 'Ana'), ('b', 300, 'Bo'), ('c', 200, 'Cy'), ('d', 100, 'Di')]:
+    def test_only_the_first_place_is_shown_on_each_board(self):
+        for user, value, name in [('a', 400, 'Ana'), ('b', 300, 'Bo'), ('c', 200, 'Cy')]:
             make_score(self.game, user, value, self.now, name=name)
         self.refresh()
 
         text = description(self.channel.posts()[0])
-        self.assertIn('**Today**\n🥇 Ana · 400\n🥈 Bo · 300\n🥉 Cy · 200\n', text)
-        self.assertNotIn('Di ·', text, 'only the top three')
+        self.assertIn('today Ana 400 · season Ana 400', text)
+        self.assertNotIn('Bo', text)
+        self.assertNotIn('Cy', text)
+        self.assertNotIn('🥇', text)
 
-    def test_an_empty_board_invites_the_first_run(self):
+    def test_a_game_with_no_scores_shows_none_for_both_halves(self):
         self.refresh()
 
         text = description(self.channel.posts()[0])
-        self.assertIn('**Today**\nNobody yet. Be the first.', text)
-        self.assertIn('**This season**\nUp for grabs.', text)
+        self.assertIn('**Vetrix** · today none · season none', text)
+        self.assertNotIn('Be the first', text)
+
+    def test_an_empty_half_shows_none_beside_a_full_one(self):
+        make_score(self.game, 'a', 400, self.now + timedelta(days=1), name='Ana')
+        self.refresh()
+
+        self.assertIn('**Vetrix** · today none · season Ana 400', description(self.channel.posts()[0]))
+
+    def test_a_long_player_name_is_cut_to_fourteen_characters(self):
+        make_score(self.game, 'a', 400, self.now, name='N' * 64)
+        self.refresh()
+
+        text = description(self.channel.posts()[0])
+        self.assertIn(f'today {"N" * 13}… 400', text)
+        self.assertNotIn('N' * 14, text)
+
+    def test_the_callout_lists_active_games_alphabetically_and_skips_inactive_ones(self):
+        make_game('neon-breaker', 'Neon Breaker')
+        make_game('dolphin-dream', 'Dolphin Dream')
+        make_game('retired', 'Retired', is_active=False)
+        self.refresh()
+
+        lines = [
+            line for line in description(self.channel.posts()[0]).split('\n')
+            if line.startswith('**') and ' · today ' in line
+        ]
+        self.assertEqual(
+            [line.split('**')[1] for line in lines],
+            ['Dolphin Dream', 'Neon Breaker', 'Vetrix'],
+        )
+        self.assertNotIn('Retired', description(self.channel.posts()[0]))
+
+    def test_ten_games_with_long_names_stay_well_under_two_thousand_characters(self):
+        for index in range(1, 10):
+            make_game(f'g{index}', f'Game {index}' + 'y' * 50)
+        games = ArcadeGame.objects.filter(is_active=True)
+        self.assertEqual(games.count(), 10)
+        for index, game in enumerate(games):
+            make_score(game, f'u{index}', 1234567, self.now, name='P' * 64)
+        self.refresh()
+
+        text = description(self.channel.posts()[0])
+        self.assertLess(len(text), 2000)
+        self.assertNotIn('more on the site', text)
 
     def test_it_is_posted_and_pinned_once_and_only_edited_when_the_standings_change(self):
         self.refresh()
@@ -393,3 +438,56 @@ class CalloutTests(AnnounceMixin, TestCase):
             self.client.get('/api/arcade/events/pending', **bot_headers())
 
         ticked.assert_called_once()
+
+
+class CalloutLengthGuardTests(AnnounceMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        # Long enough names that sixty games do not fit, short enough to be valid.
+        for index in range(60):
+            make_game(f'long-{index:02d}', f'A Very Long Game Name Number {index:02d}' + 'x' * 20)
+
+    def build(self):
+        message = announce.callout_message(ICON, self.now)
+        return message['embeds'][0]['description']
+
+    def test_the_season_half_goes_first_and_the_footer_says_so(self):
+        # A limit that only the season halves push over.
+        games = ArcadeGame.objects.filter(is_active=True).count()
+        with mock.patch.object(announce, 'CALLOUT_DESCRIPTION_LIMIT', 10**6):
+            full = len(self.build())
+        with mock.patch.object(announce, 'CALLOUT_DESCRIPTION_LIMIT', full - 1):
+            text = self.build()
+
+        self.assertEqual(text.count('· season'), 0)
+        self.assertIn('Season leaders are on the site', text)
+        self.assertNotIn('more on the site', text)
+        self.assertEqual(text.count(' · today '), games, 'every game is still listed')
+
+    def test_games_are_dropped_from_the_end_when_that_is_not_enough(self):
+        text = self.build()
+
+        self.assertLess(len(text), 4096)
+        self.assertLessEqual(len(text), announce.CALLOUT_DESCRIPTION_LIMIT)
+        self.assertNotIn('· season', text)
+        self.assertIn('Season leaders are on the site', text)
+        self.assertRegex(text, r'…and \d+ more on the site')
+        self.assertIn('midnight Eastern', text)
+        self.assertRegex(text, r'This season ends <t:\d+:F>')
+
+        shown = text.count(' · today ')
+        total = ArcadeGame.objects.filter(is_active=True).count()
+        self.assertIn(f'…and {total - shown} more on the site', text)
+        self.assertLess(shown, total)
+        # The ones that stay are the first alphabetically.
+        self.assertIn('**A Very Long Game Name Number 00', text)
+        self.assertNotIn('**Vetrix**', text)
+
+    def test_a_post_that_fits_is_untouched(self):
+        for game in ArcadeGame.objects.filter(slug__startswith='long-'):
+            game.delete()
+        text = self.build()
+
+        self.assertIn('· season', text)
+        self.assertNotIn('more on the site', text)
+        self.assertNotIn('Season leaders are on the site', text)

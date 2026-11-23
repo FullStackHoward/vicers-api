@@ -60,12 +60,15 @@ The API posts these itself, as the Vice Arcade bot over Discord REST
 `events/pending`, so a run is posted within about thirty seconds.
 `manage.py arcade_announce` does the same by hand, or from cron.
 
-**The callout.** One post saying the arcade is open, with the top three on
-today's board and this season's board for each game, when each resets, and a
+**The callout.** One post saying the arcade is open, with one line per game
+(that game's best score today and best this season, names cut to 14 characters,
+`none` for an empty board; full boards are on the site), when each resets, and a
 **Play Vice Arcade** button to the cabinet (the front page). It is pinned, edited when the
 standings change, and once a day at `ARCADE_CALLOUT_POST_HOUR` it is posted again
 at the bottom of the channel and the old copy deleted. If staff delete it, a new
-one goes up within ten minutes.
+one goes up within ten minutes. The text is kept under 3,800 characters
+(`CALLOUT_DESCRIPTION_LIMIT`): if it ever runs over, the season halves go first, then
+games from the end with an "and N more on the site" line.
 
 **Run posts.** Every banked run: who scored what, whether it is a personal best,
 where they stand on today's board, and a **Play <game>** button to
@@ -178,6 +181,16 @@ kills (stat `kills`), so they have their own keys: `max_score_per_column` and
 (seeded at 5100 and 100). The pace limits are derived from each game's starting tuning
 and must be re-derived if it changes; see migration 0009.
 
+Games added from here on need no new code for their counts. `unit_limits` is a list of
+`{"stat": ..., "label": ..., "max_score_each": ..., "min_ms_each": ...}` entries, each
+applying the same two checks to any countable stat (score at most `max_score_each` per
+unit, at least `min_ms_each` per unit of run time). `label` is only for the message and
+defaults to `stat`; either limit may be left out. A malformed entry is skipped with one
+logged warning per check, never raised. Pixel Python uses it for `foods_eaten` (210 and
+180, migration 0010). Dewdrop Defense counts `kills` and uses `max_score_per_kill` and
+`min_ms_per_kill` (1300 and 120, also migration 0010), derived from unplaytested starting
+tuning like the others.
+
 `max_score_per_piece` is intentionally unset on the seeded Vetrix row. It is the
 most useful of the checks and needs real numbers from a playtest; a guess that is
 too tight would reject genuine runs.
@@ -227,10 +240,11 @@ python manage.py test arcade
 ## The games
 
 Each cabinet is an **Arcade game** row. Vetrix is seeded by migration 0002, Neon
-Breaker by migration 0008, and Dolphin Dream and Sunset Shatter by migration 0009. A game is on the boards and in the callout as soon as it is
+Breaker by migration 0008, Dolphin Dream and Sunset Shatter by migration 0009, and Pixel
+Python and Dewdrop Defense by migration 0010. A game is on the boards and in the callout as soon as it is
 active, but only counts toward the Arcade Champion standings from the first season that
-starts after its `active_from`, so Neon Breaker, Dolphin Dream and Sunset Shatter join
-the podium average at the next reset rather than reshuffling the season in progress.
+starts after its `active_from`, so Neon Breaker, Dolphin Dream, Sunset Shatter, Pixel
+Python and Dewdrop Defense join the podium average at the next reset rather than reshuffling the season in progress.
 
 The page has to know the game too: deploy the API (and migrate) before the page that adds
 a cabinet, or starting a run on it is refused as an unknown game.
