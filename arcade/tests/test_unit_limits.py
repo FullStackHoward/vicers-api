@@ -11,7 +11,7 @@ from arcade import plausibility, podium
 from arcade.models import ArcadeGame
 from arcade.tests.factories import make_game, make_season
 
-FOODS = {'stat': 'foods_eaten', 'label': 'foods', 'max_score_each': 210, 'min_ms_each': 180}
+FOODS = {'stat': 'foods_eaten', 'label': 'foods', 'max_score_each': 210, 'min_ms_each': 135}
 
 
 class SeededRowTests(TestCase):
@@ -85,7 +85,7 @@ class UnitLimitTests(TestCase):
 
     def test_a_run_faster_than_the_pace_limit_is_refused(self):
         problems = plausibility.check(self.game, 100, {'foods_eaten': 100, 'duration_ms': 10_000})
-        self.assertEqual(problems, ['100 foods in 10000 ms is faster than 180 ms per foods'])
+        self.assertEqual(problems, ['100 foods in 10000 ms is faster than 135 ms per foods'])
 
     def test_every_problem_is_reported_together(self):
         problems = plausibility.check(self.game, 10_000, {'foods_eaten': 20, 'duration_ms': 1_000})

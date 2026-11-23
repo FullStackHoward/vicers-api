@@ -14,9 +14,9 @@ Pixel Python's plausibility limits (a `unit_limits` entry on `foods_eaten`):
 - `max_score_each` at 210. The best single food is a golden fruit worth 50 at
   the streak multiplier cap of 4, which is 200. An apple at the cap is 40, plus
   at most 50 of stage-clear bonus share, which is 90. 210 leaves 10 of slack.
-- `min_ms_each` at 180. Two foods are never closer than three cells apart and
-  the fastest snake moves one cell per 4 ticks, so three moves is 12 ticks, which
-  is 200 ms. 180 leaves slack.
+- `min_ms_each` at 135. Two foods are never closer than three cells apart and
+  the fastest snake moves one cell per 3 ticks, so three moves is 9 ticks, which
+  is 150 ms. 135 leaves slack.
 - `max_level` is a typo guard, as for the other games.
 
 Dewdrop Defense's plausibility limits (it counts `kills`, as Sunset Shatter does):
@@ -49,7 +49,7 @@ def seed(apps, schema_editor):
                         'stat': 'foods_eaten',
                         'label': 'foods',
                         'max_score_each': 210,
-                        'min_ms_each': 180,
+                        'min_ms_each': 135,
                     },
                 ],
             },
