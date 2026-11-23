@@ -187,7 +187,7 @@ applying the same two checks to any countable stat (score at most `max_score_eac
 unit, at least `min_ms_each` per unit of run time). `label` is only for the message and
 defaults to `stat`; either limit may be left out. A malformed entry is skipped with one
 logged warning per check, never raised. Pixel Python uses it for `foods_eaten` (210 and
-135, migration 0010). Dewdrop Defense counts `kills` and uses `max_score_per_kill` and
+135, seeded at 180 by migration 0010 and loosened by 0011). Dewdrop Defense counts `kills` and uses `max_score_per_kill` and
 `min_ms_per_kill` (1300 and 120, also migration 0010), derived from unplaytested starting
 tuning like the others.
 
