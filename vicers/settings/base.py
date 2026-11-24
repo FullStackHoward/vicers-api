@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'gaming',
     'creators',
     'arcade',
+    'botconfig',
 ]
 
 MIDDLEWARE = [

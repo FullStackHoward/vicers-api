@@ -25,4 +25,5 @@ urlpatterns = [
     path('api/gaming/', include('gaming.urls')),
     path('api/creators/', include('creators.urls')),
     path('api/arcade/', include('arcade.urls')),
+    path('api/bot-config/', include('botconfig.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
